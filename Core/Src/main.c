@@ -96,7 +96,7 @@ int main(void)
   HAL_DBGMCU_EnableDBGStandbyMode();
 
   /* USER CODE END SysInit */
-//TEST GIT
+
   /* Initialize all configured peripherals */
   /* USER CODE BEGIN 2 */
 
