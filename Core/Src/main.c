@@ -135,7 +135,7 @@ int main(void)
 
 	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // allume la LED
 //	SIM800L_SendSMS("+33626031205", "Hello depuis STM32 !");
-	HAL_Delay(500);
+	HAL_Delay(5000);
 	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // eteint la LED
 
 	/* Enable WakeUp Pin PWR_WAKEUP_PIN2 connected to PC.13 */
