@@ -72,73 +72,77 @@ static void MX_RTC_Init(void);
 int main(void)
 {
 
-  /* USER CODE BEGIN 1 */
+	/* USER CODE BEGIN 1 */
+	int i;
+	/* USER CODE END 1 */
 
-  /* USER CODE END 1 */
+	/* MCU Configuration--------------------------------------------------------*/
 
-  /* MCU Configuration--------------------------------------------------------*/
+	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+	HAL_Init();
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+	/* USER CODE BEGIN Init */
 
-  /* USER CODE BEGIN Init */
+	/* USER CODE END Init */
 
-  /* USER CODE END Init */
+	/* Configure the system clock */
+	SystemClock_Config();
+	MX_GPIO_Init();
+	MX_USART2_UART_Init();
+	MX_RTC_Init();
+	/* USER CODE BEGIN SysInit */
 
-  /* Configure the system clock */
-  SystemClock_Config();
-  MX_GPIO_Init();
-  MX_USART2_UART_Init();
-  MX_RTC_Init();
-  /* USER CODE BEGIN SysInit */
+	/* Uncomment to be able to debug after wake-up from Standby. Consumption will be increased */
+	HAL_DBGMCU_EnableDBGStandbyMode();
 
-  /* Uncomment to be able to debug after wake-up from Standby. Consumption will be increased */
-  HAL_DBGMCU_EnableDBGStandbyMode();
+	/* USER CODE END SysInit */
 
-  /* USER CODE END SysInit */
+	/* Initialize all configured peripherals */
+	/* USER CODE BEGIN 2 */
 
-  /* Initialize all configured peripherals */
-  /* USER CODE BEGIN 2 */
+	/* Enable Power Control clock */
+	__HAL_RCC_PWR_CLK_ENABLE();
+	/* Check if the system was resumed from Standby mode */
+	if (__HAL_PWR_GET_FLAG(PWR_FLAG_SB) != RESET)
+	{
+		/* Clear Standby flag */
+		__HAL_PWR_CLEAR_FLAG(PWR_FLAG_SB);
+		/* Check and Clear the Wakeup flag */
+		if (__HAL_PWR_GET_FLAG(PWR_FLAG_WU) != RESET)
+		{
+			__HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
+		}
+	}
 
-  /* Enable Power Control clock */
-  __HAL_RCC_PWR_CLK_ENABLE();
-  /* Check if the system was resumed from Standby mode */
-  if (__HAL_PWR_GET_FLAG(PWR_FLAG_SB) != RESET)
-  {
-    /* Clear Standby flag */
-    __HAL_PWR_CLEAR_FLAG(PWR_FLAG_SB);
-    /* Check and Clear the Wakeup flag */
-    if (__HAL_PWR_GET_FLAG(PWR_FLAG_WU) != RESET)
-    {
-      __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
-    }
-  }
 
-  HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // allume la LED
-  HAL_Delay(5000);
-	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // eteint la LED
+	for (i=0; i< 10; i++)
+	{
+		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // allume la LED
+		HAL_Delay(30);
+		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // eteint la LED
+		HAL_Delay(480);
+	}
+	/* Enable WakeUp Pin PWR_WAKEUP_PIN2 connected to PC.13 */
+	HAL_PWR_EnableWakeUpPin(PWR_WAKEUP_PIN1);
 
-  /* Enable WakeUp Pin PWR_WAKEUP_PIN2 connected to PC.13 */
-  HAL_PWR_EnableWakeUpPin(PWR_WAKEUP_PIN1);
+	/* Clear all related wakeup flags*/
+	__HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
 
-  /* Clear all related wakeup flags*/
-  __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
+	/* Enter the Standby mode */
+	HAL_PWR_EnterSTANDBYMode();
 
-  /* Enter the Standby mode */
-  HAL_PWR_EnterSTANDBYMode();
+	/* This code will never be reached! */
+	/* USER CODE END 2 */
 
-  /* This code will never be reached! */
-  /* USER CODE END 2 */
+	/* Infinite loop */
+	/* USER CODE BEGIN WHILE */
+	while (1)
+	{
+		/* USER CODE END WHILE */
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-  }
-  /* USER CODE END 3 */
+		/* USER CODE BEGIN 3 */
+	}
+	/* USER CODE END 3 */
 }
 
 
@@ -363,7 +367,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	if (GPIO_Pin == GPIO_PIN_0)
 	{
-		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); //Allume la LED
+		//HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); //Allume la LED
 		HAL_ResumeTick();
 	}
 
