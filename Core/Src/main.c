@@ -15,13 +15,16 @@
  *
  ******************************************************************************
  */
+
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
+#include <stdio.h>
+#include <stm32f4xx_ll_usart.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -62,7 +65,23 @@ static void MX_RTC_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void SIM800L_SendCommand(char *command) {
+	HAL_UART_Transmit(&huart2, (uint8_t*)command, strlen(command), HAL_MAX_DELAY);
+	HAL_UART_Transmit(&huart2, (uint8_t*)"\r\n", 2, HAL_MAX_DELAY);
+	HAL_Delay(1000); // Attente réponse
+}
 
+void SIM800L_SendSMS(char *phoneNumber, char *message) {
+	SIM800L_SendCommand("AT"); // Vérifier la connexion
+	SIM800L_SendCommand("AT+CMGF=1"); // Mode texte
+	char command[50];
+	snprintf(command, sizeof(command), "AT+CMGS=\"%s\"", phoneNumber);
+	SIM800L_SendCommand(command);
+	HAL_Delay(500);
+	HAL_UART_Transmit(&huart2, (uint8_t*)message, strlen(message), HAL_MAX_DELAY);
+	HAL_UART_Transmit(&huart2, (uint8_t*)"\x1A", 1, HAL_MAX_DELAY); // Ctrl+Z pour envoyer
+	HAL_Delay(5000);
+}
 /* USER CODE END 0 */
 
 /**
@@ -73,7 +92,6 @@ int main(void)
 {
 
 	/* USER CODE BEGIN 1 */
-	int i;
 	/* USER CODE END 1 */
 
 	/* MCU Configuration--------------------------------------------------------*/
@@ -87,9 +105,7 @@ int main(void)
 
 	/* Configure the system clock */
 	SystemClock_Config();
-	MX_GPIO_Init();
-	MX_USART2_UART_Init();
-	MX_RTC_Init();
+
 	/* USER CODE BEGIN SysInit */
 
 	/* Uncomment to be able to debug after wake-up from Standby. Consumption will be increased */
@@ -98,6 +114,9 @@ int main(void)
 	/* USER CODE END SysInit */
 
 	/* Initialize all configured peripherals */
+	MX_GPIO_Init();
+	MX_USART2_UART_Init();
+	MX_RTC_Init();
 	/* USER CODE BEGIN 2 */
 
 	/* Enable Power Control clock */
@@ -114,14 +133,11 @@ int main(void)
 		}
 	}
 
+	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // allume la LED
+//	SIM800L_SendSMS("+33626031205", "Hello depuis STM32 !");
+	HAL_Delay(500);
+	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // eteint la LED
 
-	for (i=0; i< 10; i++)
-	{
-		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // allume la LED
-		HAL_Delay(30);
-		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // eteint la LED
-		HAL_Delay(480);
-	}
 	/* Enable WakeUp Pin PWR_WAKEUP_PIN2 connected to PC.13 */
 	HAL_PWR_EnableWakeUpPin(PWR_WAKEUP_PIN1);
 
@@ -145,7 +161,6 @@ int main(void)
 	/* USER CODE END 3 */
 }
 
-
 /**
  * @brief System Clock Configuration
  * @retval None
@@ -164,7 +179,7 @@ void SystemClock_Config(void)
 	 * in the RCC_OscInitTypeDef structure.
 	 */
 	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
-	RCC_OscInitStruct.LSEState = RCC_LSE_ON;
+	RCC_OscInitStruct.LSEState = RCC_LSE_OFF;
 	RCC_OscInitStruct.HSIState = RCC_HSI_ON;
 	RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
 	RCC_OscInitStruct.LSIState = RCC_LSI_ON;
@@ -324,7 +339,6 @@ static void MX_GPIO_Init(void)
 
 	/* GPIO Ports Clock Enable */
 	__HAL_RCC_GPIOC_CLK_ENABLE();
-	__HAL_RCC_GPIOH_CLK_ENABLE();
 	__HAL_RCC_GPIOA_CLK_ENABLE();
 	__HAL_RCC_GPIOB_CLK_ENABLE();
 
