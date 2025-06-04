@@ -122,12 +122,12 @@ int main(void)
 	/* Enable Power Control clock */
 	__HAL_RCC_PWR_CLK_ENABLE();
 	/* Check if the system was resumed from Standby mode */
-	if (__HAL_PWR_GET_FLAG(PWR_FLAG_SB) != RESET)
+	if (__HAL_PWR_GET_FLAG(PWR_FLAG_SB) == SET)
 	{
 		/* Clear Standby flag */
 		__HAL_PWR_CLEAR_FLAG(PWR_FLAG_SB);
 		/* Check and Clear the Wakeup flag */
-		if (__HAL_PWR_GET_FLAG(PWR_FLAG_WU) != RESET)
+		if (__HAL_PWR_GET_FLAG(PWR_FLAG_WU) == SET)
 		{
 			__HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
 		}
