@@ -8,3 +8,5 @@ Debug/PIR.map
 /Debug/
 Debug/Core/Src/main.d
 Debug/Core/Src/stm32f4xx_it.cyclo
+Debug/Core/Src/stm32f4xx_hal_msp.o
+Debug/Core/Src/stm32f4xx_it.o

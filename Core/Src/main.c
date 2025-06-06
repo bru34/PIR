@@ -51,7 +51,7 @@ RTC_HandleTypeDef hrtc;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
+volatile enum WakeUpSource wakeup_src;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -92,6 +92,7 @@ int main(void)
 {
 
 	/* USER CODE BEGIN 1 */
+
 	/* USER CODE END 1 */
 
 	/* MCU Configuration--------------------------------------------------------*/
@@ -131,12 +132,50 @@ int main(void)
 		{
 			__HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
 		}
-	}
 
-	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // allume la LED
-//	SIM800L_SendSMS("+33626031205", "Hello depuis STM32 !");
-	HAL_Delay(5000);
-	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // eteint la LED
+		// traite toutes les sources de reveil (on peut avoir une IT pdt qu'on traite l'autre d'ou la boucle de test)
+		while(wakeup_src != WKUP_SRC_NONE)
+		{
+			if (wakeup_src == WKUP_SRC_PIR)
+			{
+				HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // allume la LED
+				//	SIM800L_SendSMS("+33626031205", "Hello depuis STM32 !");
+				HAL_Delay(5000);
+				HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // eteint la LED
+
+				wakeup_src &= ~WKUP_SRC_PIR;
+			}
+
+			if (wakeup_src == WKUP_SRC_RTC)
+			{
+				int i=10;
+
+				while(i--)
+				{
+					HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // allume la LED
+					HAL_Delay(20);
+					HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // eteint la LED
+					HAL_Delay(80);
+				}
+
+				wakeup_src &= ~WKUP_SRC_RTC;
+			}
+		}
+
+	}
+	else // mise sous tension, on attent le temps de la calibration du detecteur
+	{
+		int i=30;
+		wakeup_src = WKUP_SRC_NONE;
+
+		while(i--)
+		{
+			HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // allume la LED
+			HAL_Delay(20);
+			HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // eteint la LED
+			HAL_Delay(480);
+		}
+	}
 
 	/* Enable WakeUp Pin PWR_WAKEUP_PIN2 connected to PC.13 */
 	HAL_PWR_EnableWakeUpPin(PWR_WAKEUP_PIN1);
@@ -381,13 +420,15 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	if (GPIO_Pin == GPIO_PIN_0)
 	{
-		//HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); //Allume la LED
+		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); //Allume la LED
+		wakeup_src |= WKUP_SRC_PIR;
 		HAL_ResumeTick();
 	}
 
 	if (GPIO_Pin == GPIO_PIN_13)
 	{
 		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // Eteint la LED
+		wakeup_src |= WKUP_SRC_RTC;
 		HAL_ResumeTick();
 	}
 
