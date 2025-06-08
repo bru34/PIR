@@ -420,16 +420,17 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	if (GPIO_Pin == GPIO_PIN_0)
 	{
+		HAL_ResumeTick();
 		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); //Allume la LED
 		wakeup_src |= WKUP_SRC_PIR;
-		HAL_ResumeTick();
 	}
 
 	if (GPIO_Pin == GPIO_PIN_13)
 	{
-		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // Eteint la LED
-		wakeup_src |= WKUP_SRC_RTC;
 		HAL_ResumeTick();
+		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // Eteint la LED
+		//HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
+		wakeup_src |= WKUP_SRC_RTC;
 	}
 
 }
