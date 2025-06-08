@@ -1,2 +1,11 @@
+
+Debug/PIR.map
+Debug/Core/Src/main.cyclo
+Debug/Core/Src/main.o
+Debug/Core/Src/main.su
 Debug/PIR.elf
+Debug/PIR.list
+Debug/PIR.map
 /Debug/
+Debug/Core/Src/main.d
+Debug/Core/Src/stm32f4xx_it.cyclo
