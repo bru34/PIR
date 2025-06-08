@@ -379,12 +379,13 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+	// WKUP pin : detection ou RTC ...
 	if (GPIO_Pin == GPIO_PIN_0)
 	{
-		//HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); //Allume la LED
 		HAL_ResumeTick();
 	}
 
+	// BP (ne sort pas du standby mode)
 	if (GPIO_Pin == GPIO_PIN_13)
 	{
 		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // Eteint la LED
