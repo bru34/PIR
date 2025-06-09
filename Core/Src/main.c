@@ -131,6 +131,20 @@ int main(void)
 		{
 			__HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
 		}
+		//Reveil par RTC
+		if (__HAL_RTC_ALARM_GET_FLAG(&hrtc, RTC_FLAG_ALRAF))
+		{
+			__HAL_RTC_ALARM_CLEAR_FLAG(&hrtc, RTC_FLAG_ALRAF);
+			HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // allume la LED
+			HAL_Delay(30);
+			HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // eteint la LED
+			HAL_Delay(190);
+			HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // allume la LED
+			HAL_Delay(30);
+			HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // eteint la LED
+			HAL_Delay(190);
+			// Réveil par alarme RTC A
+		}
 	}
 
 	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // allume la LED
