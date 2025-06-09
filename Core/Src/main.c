@@ -134,8 +134,8 @@ int main(void)
 	}
 
 	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // allume la LED
-//	SIM800L_SendSMS("+33626031205", "Hello depuis STM32 !");
-	HAL_Delay(5000);
+	//	SIM800L_SendSMS("+33626031205", "Hello depuis STM32 !");
+	HAL_Delay(3000);
 	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // eteint la LED
 
 	/* Enable WakeUp Pin PWR_WAKEUP_PIN2 connected to PC.13 */
@@ -273,7 +273,7 @@ static void MX_RTC_Init(void)
 	 */
 	sAlarm.AlarmTime.Hours = 0x0;
 	sAlarm.AlarmTime.Minutes = 0x0;
-	sAlarm.AlarmTime.Seconds = 0x0;
+	sAlarm.AlarmTime.Seconds = 0x7;
 	sAlarm.AlarmTime.SubSeconds = 0x0;
 	sAlarm.AlarmTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
 	sAlarm.AlarmTime.StoreOperation = RTC_STOREOPERATION_RESET;
@@ -382,7 +382,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	// WKUP pin : detection ou RTC ...
 	if (GPIO_Pin == GPIO_PIN_0)
 	{
-		HAL_ResumeTick();
+		// HAL_ResumeTick(); on veut que la RTC pour sortir du standby
 	}
 
 	// BP (ne sort pas du standby mode)
