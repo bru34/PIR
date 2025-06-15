@@ -48,7 +48,7 @@
 /* Private variables ---------------------------------------------------------*/
 RTC_HandleTypeDef hrtc;
 
-UART_HandleTypeDef huart2;
+UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 
@@ -57,31 +57,157 @@ UART_HandleTypeDef huart2;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_USART2_UART_Init(void);
 static void MX_RTC_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void SIM800L_SendCommand(char *command) {
-	HAL_UART_Transmit(&huart2, (uint8_t*)command, strlen(command), HAL_MAX_DELAY);
-	HAL_UART_Transmit(&huart2, (uint8_t*)"\r\n", 2, HAL_MAX_DELAY);
-	HAL_Delay(1000); // Attente réponse
+
+// Initialise le module SIM800Lvoid SIM800L_Init(void) {
+
+
+SIM800L_Status SIM800L_Init(void) {
+	// Reset et démarrage du module
+	HAL_GPIO_WritePin(SIM_RST_GPIO_Port, SIM_RST_Pin, GPIO_PIN_SET);
+	HAL_Delay(100);
+	HAL_GPIO_WritePin(SIM_RST_GPIO_Port, SIM_RST_Pin, GPIO_PIN_RESET);
+	HAL_Delay(400);
+	HAL_GPIO_WritePin(SIM_RST_GPIO_Port, SIM_RST_Pin, GPIO_PIN_SET);
+	HAL_Delay(5000); // Temps de démarrage du SIM800L
+
+	// Vérification du module
+	if (SIM800L_SendCommand("AT") == SIM800L_FAILED) {
+		return SIM800L_FAILED;
+	}
+
+	// Vérification de la carte SIM
+	if (SIM800L_SendCommand("AT+CSMINS?") == SIM800L_FAILED) {
+		printf("Erreur : Aucune carte SIM détectée !\n");
+		return SIM800L_FAILED;
+	}
+
+	if (SIM800L_SendCommand("AT+CPIN=\"6672\"") == SIM800L_FAILED) {
+		printf("Erreur : mauvais PIN !\n");
+		return SIM800L_FAILED;
+	}
+
+	// Attente active de l'enregistrement réseau
+	int networkReady = 0;
+	for (int i = 0; i < 10; i++) { // 10 essais max
+		if (SIM800L_SendCommand("AT+CREG?") == SIM800L_SUCCESS) {
+			networkReady = 1;
+			break;
+		}
+		HAL_Delay(3000);
+	}
+
+	if (!networkReady) {
+		printf("Erreur : Échec de l'enregistrement réseau !\n");
+		return SIM800L_FAILED;
+	}
+
+	// Vérification du signal
+	SIM800L_SendCommand("AT+CSQ");
+
+	// Mode texte pour les SMS
+	SIM800L_SendCommand("AT+CMGF=1");
+
+	// Activation des notifications SMS
+	SIM800L_SendCommand("AT+CNMI=2,2,0,0,0");
+
+	// Désactivation de l'économie d'énergie
+	SIM800L_SendCommand("AT+CSCLK=0");
+
+	printf("SIM800L prêt et connecté au réseau !\n");
+	return SIM800L_SUCCESS;
 }
 
-void SIM800L_SendSMS(char *phoneNumber, char *message) {
-	SIM800L_SendCommand("AT"); // Vérifier la connexion
-	SIM800L_SendCommand("AT+CMGF=1"); // Mode texte
-	char command[50];
-	snprintf(command, sizeof(command), "AT+CMGS=\"%s\"", phoneNumber);
-	SIM800L_SendCommand(command);
-	HAL_Delay(500);
-	HAL_UART_Transmit(&huart2, (uint8_t*)message, strlen(message), HAL_MAX_DELAY);
-	HAL_UART_Transmit(&huart2, (uint8_t*)"\x1A", 1, HAL_MAX_DELAY); // Ctrl+Z pour envoyer
-	HAL_Delay(5000);
+// Se connecte au réseau et vérifie l'état
+void SIM800L_ConnectNetwork(void) {
+	// Vérification de l'enregistrement réseau
+	SIM800L_SendCommand("AT+CREG?");
+	// Vérification de la qualité du signal
+	SIM800L_SendCommand("AT+CSQ");
+
+	// Activation des fonctions radio (si nécessaire)
+	SIM800L_SendCommand("AT+CFUN=1");
+
+	// Vérification de l'opérateur
+	SIM800L_SendCommand("AT+COPS?");
 }
+
+// Envoi SMS
+SIM800L_Status SIM800L_SendSMS(char *phoneNumber, char *message) {
+	// Vérifier l'enregistrement réseau
+	if (SIM800L_SendCommand("AT+CREG?") == SIM800L_FAILED) {
+		printf("Erreur : Le module n'est pas enregistré sur le réseau.\n");
+		return SIM800L_FAILED;
+	}
+
+	// Vérifier le signal réseau
+	if (SIM800L_SendCommand("AT+CSQ") == SIM800L_FAILED) {
+		printf("Erreur : Signal réseau insuffisant.\n");
+		return SIM800L_FAILED;
+	}
+
+	// Activer le mode texte pour les SMS
+	if (SIM800L_SendCommand("AT+CMGF=1") == SIM800L_FAILED) {
+		printf("Erreur : Impossible d'activer le mode texte SMS.\n");
+		return SIM800L_FAILED;
+	}
+
+	// Construire la commande d'envoi du SMS
+	char command[30];
+	snprintf(command, sizeof(command), "AT+CMGS=\"%s\"", phoneNumber);
+	if (SIM800L_SendCommand(command) == SIM800L_FAILED) {
+		printf("Erreur : Problème avec la commande AT+CMGS.\n");
+		return SIM800L_FAILED;
+	}
+
+	// Envoyer le message texte
+	HAL_StatusTypeDef txStatus = HAL_UART_Transmit(&huart1, (uint8_t*)message, strlen(message), HAL_MAX_DELAY);
+	if (txStatus != HAL_OK) {
+		printf("Erreur lors de l'envoi du message : %d\n", txStatus);
+		return SIM800L_FAILED;
+	}
+
+	// Envoyer CTRL+Z (0x1A) pour valider l'envoi du SMS
+	HAL_StatusTypeDef endStatus = HAL_UART_Transmit(&huart1, (uint8_t*)"\x1A", 1, HAL_MAX_DELAY);
+	if (endStatus != HAL_OK) {
+		printf("Erreur lors de la validation de l'envoi du SMS.\n");
+		return SIM800L_FAILED;
+	}
+
+	HAL_Delay(5000); // Attente de la confirmation
+
+	printf("SMS envoyé avec succès à %s !\n", phoneNumber);
+	return SIM800L_SUCCESS;
+}
+
+SIM800L_Status SIM800L_SendCommand(char *command)
+{
+  // Allocation dynamique avec la bonne taille
+  size_t length = strlen(command) + 3; // +2 pour "\r\n", +1 pour le caractère NULL
+  char fullCommand[length];
+  snprintf(fullCommand, length, "%s\r\n", command); // Ajoute \r\n
+
+  // Envoi de la commande AT
+  HAL_UART_Transmit(&huart1, (uint8_t*)fullCommand, strlen(fullCommand), HAL_MAX_DELAY);
+
+  // Attente et lecture de la réponse
+  uint8_t response[100] = {0};
+  HAL_UART_Receive(&huart1, response, sizeof(response) - 1, 3000); // Timeout de 3 secondes
+
+  // Affichage de la réponse (à adapter selon ton projet)
+  printf("Réponse SIM800L: %s\n", response);
+
+  return SIM800L_SUCCESS;
+}
+
+
 /* USER CODE END 0 */
 
 /**
@@ -92,6 +218,7 @@ int main(void)
 {
 
 	/* USER CODE BEGIN 1 */
+
 	/* USER CODE END 1 */
 
 	/* MCU Configuration--------------------------------------------------------*/
@@ -109,45 +236,22 @@ int main(void)
 	/* USER CODE BEGIN SysInit */
 
 	/* Uncomment to be able to debug after wake-up from Standby. Consumption will be increased */
-	HAL_DBGMCU_EnableDBGStandbyMode();
+	//HAL_DBGMCU_EnableDBGStandbyMode();
 
 	/* USER CODE END SysInit */
 
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
-	MX_USART2_UART_Init();
 	MX_RTC_Init();
+	MX_USART1_UART_Init();
 	/* USER CODE BEGIN 2 */
 
-	/* Enable Power Control clock */
-	__HAL_RCC_PWR_CLK_ENABLE();
-	/* Check if the system was resumed from Standby mode */
-	if (__HAL_PWR_GET_FLAG(PWR_FLAG_SB) == SET)
-	{
-		/* Clear Standby flag */
-		__HAL_PWR_CLEAR_FLAG(PWR_FLAG_SB);
-		/* Check and Clear the Wakeup flag */
-		if (__HAL_PWR_GET_FLAG(PWR_FLAG_WU) == SET)
-		{
-			__HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
-		}
-	}
+	SIM800L_Init();  // Initialisation SIM800L
+	SIM800L_ConnectNetwork(); // Connexion au réseau
 
-	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // allume la LED
-//	SIM800L_SendSMS("+33626031205", "Hello depuis STM32 !");
-	HAL_Delay(5000);
-	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // eteint la LED
+	// Envoyer un SMS
+	SIM800L_SendSMS("+33626031205", "Hello depuis le STM32 !");
 
-	/* Enable WakeUp Pin PWR_WAKEUP_PIN2 connected to PC.13 */
-	HAL_PWR_EnableWakeUpPin(PWR_WAKEUP_PIN1);
-
-	/* Clear all related wakeup flags*/
-	__HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
-
-	/* Enter the Standby mode */
-	HAL_PWR_EnterSTANDBYMode();
-
-	/* This code will never be reached! */
 	/* USER CODE END 2 */
 
 	/* Infinite loop */
@@ -293,35 +397,35 @@ static void MX_RTC_Init(void)
 }
 
 /**
- * @brief USART2 Initialization Function
+ * @brief USART1 Initialization Function
  * @param None
  * @retval None
  */
-static void MX_USART2_UART_Init(void)
+static void MX_USART1_UART_Init(void)
 {
 
-	/* USER CODE BEGIN USART2_Init 0 */
+	/* USER CODE BEGIN USART1_Init 0 */
 
-	/* USER CODE END USART2_Init 0 */
+	/* USER CODE END USART1_Init 0 */
 
-	/* USER CODE BEGIN USART2_Init 1 */
+	/* USER CODE BEGIN USART1_Init 1 */
 
-	/* USER CODE END USART2_Init 1 */
-	huart2.Instance = USART2;
-	huart2.Init.BaudRate = 115200;
-	huart2.Init.WordLength = UART_WORDLENGTH_8B;
-	huart2.Init.StopBits = UART_STOPBITS_1;
-	huart2.Init.Parity = UART_PARITY_NONE;
-	huart2.Init.Mode = UART_MODE_TX_RX;
-	huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-	huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-	if (HAL_UART_Init(&huart2) != HAL_OK)
+	/* USER CODE END USART1_Init 1 */
+	huart1.Instance = USART1;
+	huart1.Init.BaudRate = 9600;
+	huart1.Init.WordLength = UART_WORDLENGTH_8B;
+	huart1.Init.StopBits = UART_STOPBITS_1;
+	huart1.Init.Parity = UART_PARITY_NONE;
+	huart1.Init.Mode = UART_MODE_TX_RX;
+	huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+	huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+	if (HAL_UART_Init(&huart1) != HAL_OK)
 	{
 		Error_Handler();
 	}
-	/* USER CODE BEGIN USART2_Init 2 */
+	/* USER CODE BEGIN USART1_Init 2 */
 
-	/* USER CODE END USART2_Init 2 */
+	/* USER CODE END USART1_Init 2 */
 
 }
 
@@ -345,6 +449,9 @@ static void MX_GPIO_Init(void)
 	/*Configure GPIO pin Output Level */
 	HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 
+	/*Configure GPIO pin Output Level */
+	HAL_GPIO_WritePin(SIM_RST_GPIO_Port, SIM_RST_Pin, GPIO_PIN_RESET);
+
 	/*Configure GPIO pin : B1_Pin */
 	GPIO_InitStruct.Pin = B1_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
@@ -357,12 +464,27 @@ static void MX_GPIO_Init(void)
 	GPIO_InitStruct.Pull = GPIO_PULLUP;
 	HAL_GPIO_Init(ALARM_GPIO_Port, &GPIO_InitStruct);
 
+	/*Configure GPIO pins : PA2 PA3 */
+	GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
+	GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+	GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
+	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
 	/*Configure GPIO pin : LD2_Pin */
 	GPIO_InitStruct.Pin = LD2_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+
+	/*Configure GPIO pin : SIM_RST_Pin */
+	GPIO_InitStruct.Pin = SIM_RST_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull = GPIO_PULLUP;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(SIM_RST_GPIO_Port, &GPIO_InitStruct);
 
 	/* EXTI interrupt init*/
 	HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);

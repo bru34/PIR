@@ -53,7 +53,12 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+typedef enum {
+    SIM800L_SUCCESS,
+    SIM800L_FAILED
+} SIM800L_Status;
 
+SIM800L_Status SIM800L_SendCommand(char *command);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
@@ -71,9 +76,12 @@ void Error_Handler(void);
 #define TCK_GPIO_Port GPIOA
 #define SWO_Pin GPIO_PIN_3
 #define SWO_GPIO_Port GPIOB
+#define SIM_RST_Pin GPIO_PIN_8
+#define SIM_RST_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
-
+#define SIM800L_RST_PIN GPIO_PIN_8
+#define SIM800L_RST_PORT GPIOB
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
