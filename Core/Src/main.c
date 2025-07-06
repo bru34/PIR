@@ -115,11 +115,12 @@ SIM800L_Status SIM800L_Init(void) {
 	// Mode texte pour les SMS
 	SIM800L_SendCommand("AT+CMGF=1");
 
-	// Activation des notifications SMS
+	// Activation des notifications SMS, envoie direct sur le port serie les SMS recus
 	SIM800L_SendCommand("AT+CNMI=2,2,0,0,0");
 
-	// Désactivation de l'économie d'énergie
-	SIM800L_SendCommand("AT+CSCLK=0");
+	// 2 = Activation de l'économie d'énergie, sans DTR
+	// 2 n est pas dans le datasheet mais ne renvoie pas d'erreur ...
+	SIM800L_SendCommand("AT+CSCLK=2");
 
 	printf("SIM800L prêt et connecté au réseau !\n");
 	return SIM800L_SUCCESS;
@@ -189,22 +190,22 @@ SIM800L_Status SIM800L_SendSMS(char *phoneNumber, char *message) {
 
 SIM800L_Status SIM800L_SendCommand(char *command)
 {
-  // Allocation dynamique avec la bonne taille
-  size_t length = strlen(command) + 3; // +2 pour "\r\n", +1 pour le caractère NULL
-  char fullCommand[length];
-  snprintf(fullCommand, length, "%s\r\n", command); // Ajoute \r\n
+	// Allocation dynamique avec la bonne taille
+	size_t length = strlen(command) + 3; // +2 pour "\r\n", +1 pour le caractère NULL
+	char fullCommand[length];
+	snprintf(fullCommand, length, "%s\r\n", command); // Ajoute \r\n
 
-  // Envoi de la commande AT
-  HAL_UART_Transmit(&huart1, (uint8_t*)fullCommand, strlen(fullCommand), HAL_MAX_DELAY);
+	// Envoi de la commande AT
+	HAL_UART_Transmit(&huart1, (uint8_t*)fullCommand, strlen(fullCommand), HAL_MAX_DELAY);
 
-  // Attente et lecture de la réponse
-  uint8_t response[100] = {0};
-  HAL_UART_Receive(&huart1, response, sizeof(response) - 1, 3000); // Timeout de 3 secondes
+	// Attente et lecture de la réponse
+	uint8_t response[100] = {0};
+	HAL_UART_Receive(&huart1, response, sizeof(response) - 1, 3000); // Timeout de 3 secondes
 
-  // Affichage de la réponse (à adapter selon ton projet)
-  printf("Réponse SIM800L: %s\n", response);
+	// Affichage de la réponse (à adapter selon ton projet)
+	printf("Réponse SIM800L: %s\n", response);
 
-  return SIM800L_SUCCESS;
+	return SIM800L_SUCCESS;
 }
 
 
@@ -250,7 +251,14 @@ int main(void)
 	SIM800L_ConnectNetwork(); // Connexion au réseau
 
 	// Envoyer un SMS
+	SIM800L_SendCommand("AT"); // réveille le module
+	HAL_Delay(100);
+	SIM800L_SendCommand("AT+CSCLK=0");
+
+	HAL_Delay(100);
 	SIM800L_SendSMS("+33626031205", "Hello depuis le STM32 !");
+	// 1 = Activation de l'économie d'énergie
+	//SIM800L_SendCommand("AT+CSCLK=1");
 
 	/* USER CODE END 2 */
 
@@ -504,6 +512,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	// WKUP pin : detection ou RTC ...
 	if (GPIO_Pin == GPIO_PIN_0)
 	{
+		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // Allume la LED
 		HAL_ResumeTick();
 	}
 
