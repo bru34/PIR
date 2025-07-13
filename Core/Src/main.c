@@ -19,6 +19,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -50,8 +51,16 @@ RTC_HandleTypeDef hrtc;
 
 UART_HandleTypeDef huart1;
 
+/* Definitions for defaultTask */
+osThreadId_t defaultTaskHandle;
+const osThreadAttr_t defaultTask_attributes = {
+		.name = "defaultTask",
+		.stack_size = 128 * 4,
+		.priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE BEGIN PV */
-
+osMutexId_t mutexSIM800Send;
+osSemaphoreId_t mySemaphoreAlarm;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -59,6 +68,8 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_RTC_Init(void);
 static void MX_USART1_UART_Init(void);
+void StartDefaultTask(void *argument);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -142,50 +153,75 @@ void SIM800L_ConnectNetwork(void) {
 
 // Envoi SMS
 SIM800L_Status SIM800L_SendSMS(char *phoneNumber, char *message) {
-	// Vérifier l'enregistrement réseau
-	if (SIM800L_SendCommand("AT+CREG?") == SIM800L_FAILED) {
-		printf("Erreur : Le module n'est pas enregistré sur le réseau.\n");
-		return SIM800L_FAILED;
+	SIM800L_Status result = SIM800L_FAILED;
+
+	if (osMutexAcquire(mutexSIM800Send, TIMEOUT_RESET_SIM800) != osOK) {
+		// Mutex non obtenu on reset le stm32
+		NVIC_SystemReset();
 	}
 
-	// Vérifier le signal réseau
-	if (SIM800L_SendCommand("AT+CSQ") == SIM800L_FAILED) {
-		printf("Erreur : Signal réseau insuffisant.\n");
-		return SIM800L_FAILED;
-	}
+	// Reveil du SIM800
+	//SIM800L_SendCommand("AT+CSCLK=0");
 
-	// Activer le mode texte pour les SMS
-	if (SIM800L_SendCommand("AT+CMGF=1") == SIM800L_FAILED) {
-		printf("Erreur : Impossible d'activer le mode texte SMS.\n");
-		return SIM800L_FAILED;
-	}
+	do {
+		// Vérifier l'enregistrement réseau
+		if (SIM800L_SendCommand("AT+CREG?") == SIM800L_FAILED) {
+			printf("Erreur : Le module n'est pas enregistré sur le réseau.\n");
+			break;
+		}
 
-	// Construire la commande d'envoi du SMS
-	char command[30];
-	snprintf(command, sizeof(command), "AT+CMGS=\"%s\"", phoneNumber);
-	if (SIM800L_SendCommand(command) == SIM800L_FAILED) {
-		printf("Erreur : Problème avec la commande AT+CMGS.\n");
-		return SIM800L_FAILED;
-	}
+		// Vérifier le signal réseau
+		if (SIM800L_SendCommand("AT+CSQ") == SIM800L_FAILED) {
+			printf("Erreur : Signal réseau insuffisant.\n");
+			break;
+		}
 
-	// Envoyer le message texte
-	HAL_StatusTypeDef txStatus = HAL_UART_Transmit(&huart1, (uint8_t*)message, strlen(message), HAL_MAX_DELAY);
-	if (txStatus != HAL_OK) {
-		printf("Erreur lors de l'envoi du message : %d\n", txStatus);
-		return SIM800L_FAILED;
-	}
+		// Activer le mode texte pour les SMS
+		if (SIM800L_SendCommand("AT+CMGF=1") == SIM800L_FAILED) {
+			printf("Erreur : Impossible d'activer le mode texte SMS.\n");
+			break;
+		}
 
-	// Envoyer CTRL+Z (0x1A) pour valider l'envoi du SMS
-	HAL_StatusTypeDef endStatus = HAL_UART_Transmit(&huart1, (uint8_t*)"\x1A", 1, HAL_MAX_DELAY);
-	if (endStatus != HAL_OK) {
-		printf("Erreur lors de la validation de l'envoi du SMS.\n");
-		return SIM800L_FAILED;
-	}
+		// Construire la commande d'envoi du SMS
+		char command[30];
+		snprintf(command, sizeof(command), "AT+CMGS=\"%s\"", phoneNumber);
+		if (SIM800L_SendCommand(command) == SIM800L_FAILED) {
+			printf("Erreur : Problème avec la commande AT+CMGS.\n");
+			break;
+		}
 
-	HAL_Delay(5000); // Attente de la confirmation
+		// Envoyer le message texte
+		HAL_StatusTypeDef txStatus = HAL_UART_Transmit(&huart1, (uint8_t*)message, strlen(message), HAL_MAX_DELAY);
+		if (txStatus != HAL_OK) {
+			printf("Erreur lors de l'envoi du message : %d\n", txStatus);
+			break;
+		}
 
-	printf("SMS envoyé avec succès à %s !\n", phoneNumber);
-	return SIM800L_SUCCESS;
+		// Envoyer CTRL+Z (0x1A) pour valider l'envoi du SMS
+		HAL_StatusTypeDef endStatus = HAL_UART_Transmit(&huart1, (uint8_t*)"\x1A", 1, HAL_MAX_DELAY);
+		if (endStatus != HAL_OK) {
+			printf("Erreur lors de la validation de l'envoi du SMS.\n");
+			break;
+		}
+
+		HAL_Delay(5000); // Attente de la confirmation !! TODO  on doit verifier le status !!!
+		result = SIM800L_SUCCESS;
+		printf("SMS envoyé avec succès à %s !\n", phoneNumber);
+
+	} while (0);
+
+	//SIM en sommeil
+	//SIM800L_SendCommand("AT+CSCLK=1");
+
+	osMutexRelease(mutexSIM800Send);
+
+	// met le stm32 en mode STOP ...
+//	HAL_SuspendTick();
+//	HAL_PWR_EnterSTOPMode(PWR_MAINREGULATOR_ON, PWR_STOPENTRY_WFI);
+//	SystemClock_Config();  // ⚠️ doit restaurer les clocks
+//	HAL_ResumeTick();
+
+	return result;
 }
 
 SIM800L_Status SIM800L_SendCommand(char *command)
@@ -208,7 +244,23 @@ SIM800L_Status SIM800L_SendCommand(char *command)
 	return SIM800L_SUCCESS;
 }
 
+void ThreadAlarm(void *argument)
+{
+	for(;;)
+	{
+		osSemaphoreAcquire(mySemaphoreAlarm, osWaitForever);
+		SIM800L_SendSMS("+33626031205", "Detection sur STM32 !");
+		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // Etteint la LED
+	}
+}
 
+void ThreadReception(void *argument)
+{
+	for(;;)
+	{
+		SIM800L_SendSMS("+33626031205", "Echo SMS");
+	}
+}
 /* USER CODE END 0 */
 
 /**
@@ -236,9 +288,6 @@ int main(void)
 
 	/* USER CODE BEGIN SysInit */
 
-	/* Uncomment to be able to debug after wake-up from Standby. Consumption will be increased */
-	//HAL_DBGMCU_EnableDBGStandbyMode();
-
 	/* USER CODE END SysInit */
 
 	/* Initialize all configured peripherals */
@@ -249,21 +298,74 @@ int main(void)
 
 	SIM800L_Init();  // Initialisation SIM800L
 	SIM800L_ConnectNetwork(); // Connexion au réseau
-
-	// Envoyer un SMS
-	SIM800L_SendCommand("AT"); // réveille le module
 	HAL_Delay(100);
-	SIM800L_SendCommand("AT+CSCLK=0");
-
-	HAL_Delay(100);
-	SIM800L_SendSMS("+33626031205", "Hello depuis le STM32 !");
-	// 1 = Activation de l'économie d'énergie
-	//SIM800L_SendCommand("AT+CSCLK=1");
 
 	/* USER CODE END 2 */
 
+	/* Init scheduler */
+	osKernelInitialize();
+
+	/* USER CODE BEGIN RTOS_MUTEX */
+	/* add mutexes, ... */
+	// Création du mutex avec héritage de priorité
+	const osMutexAttr_t mutexAttr = {
+			.name = "ProtectB",
+			.attr_bits = osMutexPrioInherit
+	};
+	mutexSIM800Send = osMutexNew(&mutexAttr);
+
+	/* USER CODE END RTOS_MUTEX */
+
+	/* USER CODE BEGIN RTOS_SEMAPHORES */
+	/* add semaphores, ... */
+	/* USER CODE END RTOS_SEMAPHORES */
+
+	/* USER CODE BEGIN RTOS_TIMERS */
+	/* start timers, add new ones, ... */
+	/* USER CODE END RTOS_TIMERS */
+
+	/* USER CODE BEGIN RTOS_QUEUES */
+	/* add queues, ... */
+	/* USER CODE END RTOS_QUEUES */
+
+	/* Create the thread(s) */
+	/* creation of defaultTask */
+	defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+	/* USER CODE BEGIN RTOS_THREADS */
+	/* add threads, ... */
+	// Création des threads avec priorités différentes
+	const osThreadAttr_t highAttr = {
+			.name = "HighThread",
+			.priority = osPriorityHigh
+	};
+	const osThreadAttr_t lowAttr = {
+			.name = "LowThread",
+			.priority = osPriorityBelowNormal
+	};
+
+	osThreadNew(ThreadAlarm, NULL, &highAttr);
+	osThreadNew(ThreadReception, NULL, &lowAttr);
+	/* USER CODE END RTOS_THREADS */
+
+	/* USER CODE BEGIN RTOS_EVENTS */
+	/* add events, ... */
+	/* USER CODE END RTOS_EVENTS */
+
+	/* Start scheduler */
+	osKernelStart();
+
+	/* We should never get here as control is now taken by the scheduler */
+
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
+
+	// 💤 Entrée initiale en mode Stop
+	HAL_SuspendTick();
+	HAL_PWR_EnterSTOPMode(PWR_MAINREGULATOR_ON, PWR_STOPENTRY_WFI);
+	SystemClock_Config();
+	HAL_ResumeTick();
+
 	while (1)
 	{
 		/* USER CODE END WHILE */
@@ -495,10 +597,10 @@ static void MX_GPIO_Init(void)
 	HAL_GPIO_Init(SIM_RST_GPIO_Port, &GPIO_InitStruct);
 
 	/* EXTI interrupt init*/
-	HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+	HAL_NVIC_SetPriority(EXTI0_IRQn, 5, 0);
 	HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
-	HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+	HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
 	HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 	/* USER CODE BEGIN MX_GPIO_Init_2 */
@@ -513,18 +615,50 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	if (GPIO_Pin == GPIO_PIN_0)
 	{
 		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET); // Allume la LED
-		HAL_ResumeTick();
+		osSemaphoreRelease(mySemaphoreAlarm);
 	}
-
-	// BP (ne sort pas du standby mode)
-	if (GPIO_Pin == GPIO_PIN_13)
-	{
-		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // Eteint la LED
-		HAL_ResumeTick();
-	}
-
 }
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+ * @brief  Function implementing the defaultTask thread.
+ * @param  argument: Not used
+ * @retval None
+ */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void *argument)
+{
+	/* USER CODE BEGIN 5 */
+	/* Infinite loop */
+	for(;;)
+	{
+		osDelay(1);
+	}
+	/* USER CODE END 5 */
+}
+
+/**
+ * @brief  Period elapsed callback in non blocking mode
+ * @note   This function is called  when TIM1 interrupt took place, inside
+ * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+ * a global variable "uwTick" used as application time base.
+ * @param  htim : TIM handle
+ * @retval None
+ */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+	/* USER CODE BEGIN Callback 0 */
+
+	/* USER CODE END Callback 0 */
+	if (htim->Instance == TIM1)
+	{
+		HAL_IncTick();
+	}
+	/* USER CODE BEGIN Callback 1 */
+
+	/* USER CODE END Callback 1 */
+}
 
 /**
  * @brief  This function is executed in case of error occurrence.

@@ -58,6 +58,8 @@ typedef enum {
     SIM800L_FAILED
 } SIM800L_Status;
 
+#define TIMEOUT_RESET_SIM800 20000
+
 SIM800L_Status SIM800L_SendCommand(char *command);
 /* USER CODE END EFP */
 
