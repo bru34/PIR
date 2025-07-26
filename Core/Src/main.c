@@ -89,7 +89,7 @@ SIM800L_Status SIM800L_Init(void) {
 		return SIM800L_FAILED;
 	}
 
-	if (SIM800L_SendCommand("AT+CPIN=\"6672\"") == SIM800L_FAILED) {
+	if (SIM800L_SendCommand("AT+CPIN=\"667234\"") == SIM800L_FAILED) {
 		printf("Erreur : mauvais PIN !\n");
 		return SIM800L_FAILED;
 	}
