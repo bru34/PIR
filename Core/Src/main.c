@@ -282,6 +282,10 @@ void SIM800L_ConnectNetwork(void) {
 SIM800L_Status SIM800L_SendSMS(char *phoneNumber, char *message) {
 	SIM800L_Status result = SIM800L_FAILED;
 
+	printf(".");
+	osDelay(1000);
+	return result;
+
 	if (osMutexAcquire(mutexSIM800Send, TIMEOUT_RESET_SIM800) != osOK) {
 		// Mutex non obtenu on reset le stm32
 		NVIC_SystemReset();
@@ -388,6 +392,7 @@ void ThreadAlarm(void *argument)
 	{
 		osSemaphoreAcquire(mySemaphoreAlarm, osWaitForever);
 		SIM800L_SendSMS("+33626031205", "Detection sur STM32 !");
+		osDelay(500);
 		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // Etteint la LED
 	}
 }
@@ -434,9 +439,9 @@ int main(void)
 	MX_USART1_UART_Init();
 	/* USER CODE BEGIN 2 */
 
-	SIM800L_Init();  // Initialisation SIM800L
-	SIM800L_ConnectNetwork(); // Connexion au réseau
-	HAL_Delay(100);
+//	SIM800L_Init();  // Initialisation SIM800L
+//	SIM800L_ConnectNetwork(); // Connexion au réseau
+//	HAL_Delay(100);
 
 	/* USER CODE END 2 */
 
@@ -456,6 +461,20 @@ int main(void)
 
 	/* USER CODE BEGIN RTOS_SEMAPHORES */
 	/* add semaphores, ... */
+	// Création du sémaphore binaire pour l’alarme
+	const osSemaphoreAttr_t mySemaphoreAlarm_attributes = {
+	    .name = "mySemaphoreAlarm"
+	};
+	mySemaphoreAlarm = osSemaphoreNew(1, 0, &mySemaphoreAlarm_attributes);
+
+	/*
+	 * 1 = nombre max de jetons (sémaphore binaire)
+	 * 0 = valeur initiale (donc ThreadAlarm attendra un release)
+	 */
+	if (mySemaphoreAlarm == NULL) {
+	    Error_Handler(); // gestion d’erreur si allocation échoue
+	}
+
 	/* USER CODE END RTOS_SEMAPHORES */
 
 	/* USER CODE BEGIN RTOS_TIMERS */
