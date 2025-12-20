@@ -193,11 +193,8 @@ int main(void)
   MX_RTC_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-
-//	SIM800L_Init();  // Initialisation SIM800L
-//	SIM800L_ConnectNetwork(); // Connexion au réseau
-//	HAL_Delay(100);
-
+  HAL_Delay(500); // Laisse le temps au debugger de "s'accrocher"
+  printf("Demarrage du systeme...\n");
   /* USER CODE END 2 */
 
   /* Init scheduler */
