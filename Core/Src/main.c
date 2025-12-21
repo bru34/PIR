@@ -109,6 +109,7 @@ void ThreadAlarm(void *argument)
 		osSemaphoreAcquire(mySemaphoreAlarm, osWaitForever);
 		printf("Alarme ! Envoi SMS...\n");
 		Modem_Send_SMS(PHONE_NUMBER, "ALARME DETECTEE !");
+		osSemaphoreAcquire(mySemaphoreAlarm, 0);
 		osDelay(500);
 		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // Etteint la LED
 	}
@@ -119,6 +120,7 @@ void ThreadReception(void *argument)
 	for(;;)
 	{
 		// envoi d un SMS en echo
+		osDelay(10); // Laisse respirer le système
 	}
 }
 // Initialisation matérielle du modem A7670G
