@@ -67,6 +67,8 @@ SIM800L_Status SIM800L_SendCommand(char *command);
 #define B1_Pin GPIO_PIN_13
 #define B1_GPIO_Port GPIOC
 #define B1_EXTI_IRQn EXTI15_10_IRQn
+#define MODEM_SLEEP_Pin GPIO_PIN_0
+#define MODEM_SLEEP_GPIO_Port GPIOC
 #define ALARM_Pin GPIO_PIN_0
 #define ALARM_GPIO_Port GPIOA
 #define ALARM_EXTI_IRQn EXTI0_IRQn
@@ -78,8 +80,6 @@ SIM800L_Status SIM800L_SendCommand(char *command);
 #define TCK_GPIO_Port GPIOA
 #define SWO_Pin GPIO_PIN_3
 #define SWO_GPIO_Port GPIOB
-#define PWRKEY_Pin GPIO_PIN_8
-#define PWRKEY_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
