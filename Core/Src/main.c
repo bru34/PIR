@@ -193,6 +193,8 @@ HAL_StatusTypeDef Modem_SendWait(char* cmd, char* expected_resp, uint32_t timeou
 ModemStatus Modem_Init_Sequence(void) {
 
 	int retry = 0;
+	ModemStatus retVal = ERR_NOT_INITIALIZED;
+
 	memset(modem_buffer, 0, sizeof(modem_buffer));
 
 	// 1. Sync Baudrate
@@ -274,9 +276,9 @@ ModemStatus Modem_Init_Sequence(void) {
 		return ERR_CTZU;
 	}
 
-	Modem_Send_SMS(PHONE_NUMBER, "Big Brother is watching you...");
+	retVal = Modem_Send_SMS(PHONE_NUMBER, "Big Brother is watching you...");
 
-	return MODEM_OK;
+	return retVal;
 }
 
 ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
@@ -318,23 +320,23 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 }
 
 int Modem_Get_Signal_Quality(void) {
-    char* ptr;
-    int rssi = -1;
+	char* ptr;
+	int rssi = -1;
 
-    // 1. On envoie la commande
-    if (Modem_SendWait("AT+CSQ\r", "+CSQ:", 2000) == HAL_OK) {
+	// 1. On envoie la commande
+	if (Modem_SendWait("AT+CSQ\r", "+CSQ:", 2000) == HAL_OK) {
 
-        // Le buffer contient un truc genre: "\r\n+CSQ: 23,0\r\nOK\r\n"
-        // 2. On cherche le début de la réponse utile
-        ptr = strstr(modem_buffer, "+CSQ: ");
-        if (ptr != NULL) {
-            // 3. On extrait le nombre juste après "+CSQ: "
-            // On avance le pointeur de 6 cases (longueur de "+CSQ: ")
-            sscanf(ptr + 6, "%d", &rssi);
-        }
-    }
+		// Le buffer contient un truc genre: "\r\n+CSQ: 23,0\r\nOK\r\n"
+		// 2. On cherche le début de la réponse utile
+		ptr = strstr(modem_buffer, "+CSQ: ");
+		if (ptr != NULL) {
+			// 3. On extrait le nombre juste après "+CSQ: "
+			// On avance le pointeur de 6 cases (longueur de "+CSQ: ")
+			sscanf(ptr + 6, "%d", &rssi);
+		}
+	}
 
-    return rssi; // Retourne entre 0 et 31, ou 99/ -1 si erreur
+	return rssi; // Retourne entre 0 et 31, ou 99/ -1 si erreur
 }
 
 /* USER CODE END 0 */
@@ -348,6 +350,7 @@ int main(void)
 
 	/* USER CODE BEGIN 1 */
 	ModemStatus status = ERR_NOT_INITIALIZED;
+	int tentative = 0;
 	/* USER CODE END 1 */
 
 	/* MCU Configuration--------------------------------------------------------*/
@@ -371,21 +374,46 @@ int main(void)
 	MX_RTC_Init();
 	MX_USART1_UART_Init();
 	/* USER CODE BEGIN 2 */
-	HAL_Delay(500); // Laisse le temps au debugger de "s'accrocher"
+	HAL_Delay(5000); // Laisse le temps Modem de s'initialiser après l'alimentation"
 	printf("Demarrage systeme:\n");
 
 	// 1. Allumage électrique (Reset + PowerKey)
 	//Modem_Hard_Init();
 
-	// 2. Configuration logicielle (Baudrate, PIN, Réseau...)
-	status = Modem_Init_Sequence();
+	// 2. Configuration logicielle (Baudrate, PIN, Réseau...) avec réessais
+	do {
+		tentative++;
+		printf("   Initialisation Modem (Tentative %d/3)...\n", tentative);
 
+		status = Modem_Init_Sequence();
+
+		if (status == MODEM_OK) {
+			break; // Succès, on sort de la boucle immédiatement
+		}
+
+		if (tentative < 3) {
+			printf("\tEchec (Code: %d). Tentative de Soft Reset...\n", status);
+
+			// 1. On envoie la commande de reset
+			// On ne checke pas trop le retour, car le modem va couper la com pour rebooter
+			Modem_SendWait("AT+CRESET\r", "OK", 1000);
+
+			// 2. IMPORTANT : On attend que le modem redémarre
+			// Un reboot prend du temps (bootloader + recherche réseau)
+			// 5 à 10 secondes sont recommandées
+			printf("Redemarrage en cours, patientez 5s...\n");
+			HAL_Delay(5000);
+		}
+	} while (tentative < 3);
+
+
+	// Verdict final après la boucle
 	if (status != MODEM_OK) {
-		printf("Echec critique de l'initialisation Modem (Code: %d)\n", status);
-		// Ici, tu pourrais décider de bloquer ou de clignoter une LED d'erreur
+		printf("!! Echec critique de l'initialisation Modem apres 3 essais (Dernier Code: %d) !! \n", status);
+		// Blocage ou LED d'erreur
 		Error_Handler();
 	} else {
-		printf("System fonctionnel\n\n");
+		printf("Systeme fonctionnel\n\n");
 	}
 
 	/* USER CODE END 2 */
