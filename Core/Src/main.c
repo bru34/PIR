@@ -104,14 +104,37 @@ int _write(int file, char *ptr, int len)
 
 void ThreadAlarm(void *argument)
 {
+	// On garde en mémoire l'heure du dernier envoi
+	static uint32_t last_sms_tick = 0;
+	// On définit un temps de pause (ex: 10 secondes = 10000 ms)
+	const uint32_t SMS_COOLDOWN = 10000;
+
 	for(;;)
 	{
+		// 1. On attend qu'un jeton soit dispo (Vraie alarme OU parasite)
 		osSemaphoreAcquire(mySemaphoreAlarm, osWaitForever);
-		printf("Alarme ! Envoi SMS...\n");
-		Modem_Send_SMS(PHONE_NUMBER, "ALARME DETECTEE !");
+
+		// 2. LE FILTRE TEMPOREL
+		// On vérifie si suffisamment de temps s'est écoulé depuis le dernier SMS
+		if (HAL_GetTick() - last_sms_tick > SMS_COOLDOWN)
+		{
+			printf("Alarme VALIDE ! Envoi SMS...\n");
+
+			Modem_Send_SMS(PHONE_NUMBER, "ALARME DETECTEE !");
+
+			// On met à jour l'heure du dernier envoi
+			last_sms_tick = HAL_GetTick();
+
+			osDelay(500);
+		}
+		else
+		{
+			// C'est un parasite arrivé trop tôt après le précédent envoi !
+			printf("Alarme IGNOREE (Cooldown actif)\n");
+		}
+
+		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
 		osSemaphoreAcquire(mySemaphoreAlarm, 0);
-		osDelay(500);
-		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); // Etteint la LED
 	}
 }
 
@@ -163,7 +186,7 @@ HAL_StatusTypeDef Modem_SendWait(char* cmd, char* expected_resp, uint32_t timeou
 
 	HAL_UART_Transmit(&huart1, (uint8_t*)cmd, strlen(cmd), 1000);
 	HAL_UART_Receive(&huart1, (uint8_t*)modem_buffer, sizeof(modem_buffer) - 1, timeout);
-	printf("\r\nRecu: [%s]", modem_buffer); // <--- Ajoute ça pour voir ce qui arrive vraiment !
+// printf("\r\nRecu: [%s]", modem_buffer); // <--- Ajoute ça pour voir ce qui arrive vraiment !
 
 	if (strstr(modem_buffer, expected_resp)) return HAL_OK;
 	return HAL_ERROR;
@@ -209,9 +232,9 @@ ModemStatus Modem_Init_Sequence(void) {
 	printf("Verif SIM...");
 
 	// Étape 4.1 : On demande l'état de la SIM
-//	if (Modem_SendWait("AT+CPIN?\r", "+CPIN: READY", 500) == HAL_OK) {
-//		return HAL_OK; // Tout est déjà bon, on sort !
-//	}
+	//	if (Modem_SendWait("AT+CPIN?\r", "+CPIN: READY", 500) == HAL_OK) {
+	//		return HAL_OK; // Tout est déjà bon, on sort !
+	//	}
 
 	// Étape 4.2 : Si pas prête, est-ce qu'elle demande le PIN ?
 	if (Modem_SendWait("AT+CPIN?\r", "+CPIN: SIM PIN", 500) == HAL_OK) {
@@ -238,19 +261,19 @@ ModemStatus Modem_Init_Sequence(void) {
 	// On laisse un peu plus de temps (5s) car l'enregistrement peut prendre du temps
 	if (Modem_SendWait("AT+CREG?\r", "OK", 5000) == HAL_OK) {
 
-	    // 2. On vérifie si le buffer contient l'un des statuts d'enregistrement valides
-	    if (strstr(modem_buffer, "+CREG: 0,1") != NULL ||  // Enregistré (Réseau domestique)
-	        strstr(modem_buffer, "+CREG: 0,5") != NULL ||  // Enregistré (Roaming)
-	        strstr(modem_buffer, "+CREG: 0,6") != NULL ||  // SMS uniquement (Réseau domestique)
-	        strstr(modem_buffer, "+CREG: 0,7") != NULL)    // SMS uniquement (Roaming)
-	    {
-	        // Succès : Le modem est enregistré et prêt
-	    	printf(" OK\n");
-	    }
-	    else {
-	    	printf(" FAIL (Not registered)\n");
-	    	return ERR_CREG;
-	    }
+		// 2. On vérifie si le buffer contient l'un des statuts d'enregistrement valides
+		if (strstr(modem_buffer, "+CREG: 0,1") != NULL ||  // Enregistré (Réseau domestique)
+				strstr(modem_buffer, "+CREG: 0,5") != NULL ||  // Enregistré (Roaming)
+				strstr(modem_buffer, "+CREG: 0,6") != NULL ||  // SMS uniquement (Réseau domestique)
+				strstr(modem_buffer, "+CREG: 0,7") != NULL)    // SMS uniquement (Roaming)
+		{
+			// Succès : Le modem est enregistré et prêt
+			printf(" OK\n");
+		}
+		else {
+			printf(" FAIL (Not registered)\n");
+			return ERR_CREG;
+		}
 	}
 
 	// 6. Timezone
