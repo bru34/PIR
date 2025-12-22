@@ -36,8 +36,11 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+// Statuts de l'initialisation du modem
 typedef enum {
 	MODEM_OK = 0,
+	ERR_NOT_INITIALIZED,
 	ERR_AT_SYNC,
 	ERR_ATE0,
 	ERR_CMEE,
@@ -86,13 +89,14 @@ static void MX_USART1_UART_Init(void);
 void StartDefaultTask(void *argument);
 
 /* USER CODE BEGIN PFP */
-char modem_buffer[128] = {0};
+char modem_buffer[128] = {0}; // Buffer de réception modem
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
 ModemStatus Modem_Send_SMS(char*, char* );
+int Modem_Get_Signal_Quality(void);
 
 // Redirection de printf vers ITM (SWO)
 int _write(int file, char *ptr, int len)
@@ -102,6 +106,7 @@ int _write(int file, char *ptr, int len)
 	return len;
 }
 
+// Traitement de l'alarme dans un thread dédié
 void ThreadAlarm(void *argument)
 {
 	// On garde en mémoire l'heure du dernier envoi
@@ -118,11 +123,14 @@ void ThreadAlarm(void *argument)
 		// On vérifie si suffisamment de temps s'est écoulé depuis le dernier SMS
 		if (HAL_GetTick() - last_sms_tick > SMS_COOLDOWN)
 		{
-			printf("Alarme VALIDE ! Envoi SMS...\n");
+			printf("Alarme VALIDE\n");
 
 			Modem_Send_SMS(PHONE_NUMBER, "ALARME DETECTEE !");
 
 			// On met à jour l'heure du dernier envoi
+			/* Note : ce cpt n'est pas init au demarrage de l'appli, donc on ne filtre pas a la 1ere emmission.
+			 * C'est tres bien, comme ca on recoit un SMS au demarrage pour confirmer que tout fonctionne !
+			 */
 			last_sms_tick = HAL_GetTick();
 
 			osDelay(500);
@@ -130,7 +138,7 @@ void ThreadAlarm(void *argument)
 		else
 		{
 			// C'est un parasite arrivé trop tôt après le précédent envoi !
-			printf("Alarme IGNOREE (Cooldown actif)\n");
+			printf("Alarme ignoree (Cooldown actif)\n");
 		}
 
 		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
@@ -138,6 +146,7 @@ void ThreadAlarm(void *argument)
 	}
 }
 
+// Thread de réception des données modem (SMS entrants, etc.)
 void ThreadReception(void *argument)
 {
 	for(;;)
@@ -149,21 +158,6 @@ void ThreadReception(void *argument)
 // Initialisation matérielle du modem A7670G
 void Modem_Hard_Init(void) {
 
-	//	HAL_GPIO_WritePin(RESET_GPIO_Port, RESET_Pin, GPIO_PIN_SET); // reset relaché
-	//	HAL_Delay(100);
-	//	HAL_GPIO_WritePin(RESET_GPIO_Port, RESET_Pin, GPIO_PIN_RESET); // reset actif
-	//	HAL_Delay(2000);
-	//	HAL_GPIO_WritePin(RESET_GPIO_Port, RESET_Pin, GPIO_PIN_SET); // reset relaché
-	//	HAL_Delay(2000);
-
-
-	//	while(1)
-	//	{
-	//		HAL_GPIO_WritePin(PWRKEY_GPIO_Port, PWRKEY_Pin, GPIO_PIN_RESET); // PWKEY actif
-	//		HAL_Delay(100);
-	//		HAL_GPIO_WritePin(PWRKEY_GPIO_Port, PWRKEY_Pin, GPIO_PIN_SET); // PWKEY relaché
-	//		HAL_Delay(100);
-	//	}
 	// 1. S'assurer que le Reset n'est pas actif (souvent actif à l'état bas)
 	//	HAL_GPIO_WritePin(RESET_GPIO_Port, RESET_Pin, GPIO_PIN_SET);
 	//	HAL_Delay(100);
@@ -186,25 +180,23 @@ HAL_StatusTypeDef Modem_SendWait(char* cmd, char* expected_resp, uint32_t timeou
 
 	HAL_UART_Transmit(&huart1, (uint8_t*)cmd, strlen(cmd), 1000);
 	HAL_UART_Receive(&huart1, (uint8_t*)modem_buffer, sizeof(modem_buffer) - 1, timeout);
-// printf("\r\nRecu: [%s]", modem_buffer); // <--- Ajoute ça pour voir ce qui arrive vraiment !
+	// printf("\r\nRecu: [%s]", modem_buffer); // <--- Ajoute ça pour voir ce qui arrive vraiment !
 
-	if (strstr(modem_buffer, expected_resp)) return HAL_OK;
-	return HAL_ERROR;
+	if (strstr(modem_buffer, expected_resp))
+		return HAL_OK;
+	else
+		return HAL_ERROR;
 }
 
 
 //	Séquence d'initialisation logicielle du modem A7670G
-
 ModemStatus Modem_Init_Sequence(void) {
 
 	int retry = 0;
-
 	memset(modem_buffer, 0, sizeof(modem_buffer));
 
-	printf("\r\n--- Debut de l'initialisation ---\n");
-
 	// 1. Sync Baudrate
-	printf("Sync baudrate...");
+	printf("\tSync baudrate...");
 
 	while(Modem_SendWait("AT\r", "OK", 1000) != HAL_OK) {
 		retry++;
@@ -229,35 +221,33 @@ ModemStatus Modem_Init_Sequence(void) {
 	}
 
 	// 4. SIM Check & PIN Management
-	printf("Verif SIM...");
+	printf("\tVerif SIM...");
 
 	// Étape 4.1 : On demande l'état de la SIM
-	//	if (Modem_SendWait("AT+CPIN?\r", "+CPIN: READY", 500) == HAL_OK) {
-	//		return HAL_OK; // Tout est déjà bon, on sort !
-	//	}
+	if (Modem_SendWait("AT+CPIN?\r", "+CPIN: READY", 500) != HAL_OK) {
 
-	// Étape 4.2 : Si pas prête, est-ce qu'elle demande le PIN ?
-	if (Modem_SendWait("AT+CPIN?\r", "+CPIN: SIM PIN", 500) == HAL_OK) {
 
-		// On envoie le code PIN
-		if (Modem_SendWait(AT_PIN_CMD, "OK", 2000) != HAL_OK) {
-			return HAL_ERROR; // Le modem n'a pas accepté la commande (ou timeout)
-		}
+		// Étape 4.2 : Si pas prête, est-ce qu'elle demande le PIN ?
+		if (Modem_SendWait("AT+CPIN?\r", "+CPIN: SIM PIN", 500) == HAL_OK) {
 
-		// IMPORTANT : Après le PIN, la SIM met quelques secondes à passer en READY
-		HAL_Delay(3000);
+			// On envoie le code PIN
+			if (Modem_SendWait(AT_PIN_CMD, "OK", 2000) != HAL_OK) {
+				return ERR_CPIN; // Le modem n'a pas accepté la commande (ou timeout)
+			}
 
-		// Étape 3 : Vérification finale obligatoire
-		if (Modem_SendWait("AT+CPIN?\r", "+CPIN: READY", 1000) == HAL_OK) {
-			return HAL_OK; // C'est gagné, SIM déverrouillée et active
+			// IMPORTANT : Après le PIN, la SIM met quelques secondes à passer en READY
+			HAL_Delay(3000);
+
+			// Étape 3 : Vérification finale obligatoire
+			if (Modem_SendWait("AT+CPIN?\r", "+CPIN: READY", 1000) != HAL_OK) {
+				return ERR_CPIN;
+			}
 		}
 	}
-
-
 	printf(" OK\n");
 
 	// 5. Network Check
-	printf("Verif Reseau...");
+	printf("\tVerif Reseau... ");
 	// On laisse un peu plus de temps (5s) car l'enregistrement peut prendre du temps
 	if (Modem_SendWait("AT+CREG?\r", "OK", 5000) == HAL_OK) {
 
@@ -267,8 +257,10 @@ ModemStatus Modem_Init_Sequence(void) {
 				strstr(modem_buffer, "+CREG: 0,6") != NULL ||  // SMS uniquement (Réseau domestique)
 				strstr(modem_buffer, "+CREG: 0,7") != NULL)    // SMS uniquement (Roaming)
 		{
+			int niveau_signal;
 			// Succès : Le modem est enregistré et prêt
-			printf(" OK\n");
+			niveau_signal = Modem_Get_Signal_Quality();
+			printf("OK [signal: %d/31]\n", niveau_signal);
 		}
 		else {
 			printf(" FAIL (Not registered)\n");
@@ -282,17 +274,13 @@ ModemStatus Modem_Init_Sequence(void) {
 		return ERR_CTZU;
 	}
 
-	printf("--- Init terminee avec SUCCES ---\n");
-
-	Modem_Send_SMS(PHONE_NUMBER, "Systeme demarre et pret a fonctionner.");
+	Modem_Send_SMS(PHONE_NUMBER, "Big Brother is watching you...");
 
 	return MODEM_OK;
 }
 
 ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 	char cmd[64];
-
-	printf("\r\n--- Envoi SMS ---\n");
 
 	// 1. Passage en mode Texte (indispensable)
 	if (Modem_SendWait("AT+CMGF=1\r", "OK", 1000) != HAL_OK) {
@@ -303,7 +291,7 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 	// 2. Envoi du numéro de téléphone
 	// Le modem va répondre par le caractère '>' pour dire qu'il attend le texte
 	sprintf(cmd, "AT+CMGS=\"%s\"\r", phone_number);
-	printf("Envoi au %s...\n", phone_number);
+	printf("\tEnvoi au %s de { %s } ... ", phone_number, message);
 
 	if (Modem_SendWait(cmd, ">", 2000) != HAL_OK) {
 		printf("Erreur: Le modem n'attend pas le texte\n");
@@ -320,14 +308,33 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 
 	// 4. Attente de la confirmation d'envoi (peut prendre du temps)
 	// Le modem répond "+CMGS: <id>" puis "OK"
-	printf("Validation en cours...");
 	if (Modem_SendWait("", "OK", 10000) != HAL_OK) {
-		printf(" FAIL (Pas de confirmation réseau)\n");
+		printf(" FAIL (Pas de confirmation reseau)\n");
 		return ERR_SMS_BODY;
 	}
 
-	printf(" SUCCES !\n");
+	printf("OK\n");
 	return MODEM_OK;
+}
+
+int Modem_Get_Signal_Quality(void) {
+    char* ptr;
+    int rssi = -1;
+
+    // 1. On envoie la commande
+    if (Modem_SendWait("AT+CSQ\r", "+CSQ:", 2000) == HAL_OK) {
+
+        // Le buffer contient un truc genre: "\r\n+CSQ: 23,0\r\nOK\r\n"
+        // 2. On cherche le début de la réponse utile
+        ptr = strstr(modem_buffer, "+CSQ: ");
+        if (ptr != NULL) {
+            // 3. On extrait le nombre juste après "+CSQ: "
+            // On avance le pointeur de 6 cases (longueur de "+CSQ: ")
+            sscanf(ptr + 6, "%d", &rssi);
+        }
+    }
+
+    return rssi; // Retourne entre 0 et 31, ou 99/ -1 si erreur
 }
 
 /* USER CODE END 0 */
@@ -340,7 +347,7 @@ int main(void)
 {
 
 	/* USER CODE BEGIN 1 */
-
+	ModemStatus status = ERR_NOT_INITIALIZED;
 	/* USER CODE END 1 */
 
 	/* MCU Configuration--------------------------------------------------------*/
@@ -365,20 +372,20 @@ int main(void)
 	MX_USART1_UART_Init();
 	/* USER CODE BEGIN 2 */
 	HAL_Delay(500); // Laisse le temps au debugger de "s'accrocher"
-	printf("Demarrage du systeme...\n");
+	printf("Demarrage systeme:\n");
 
 	// 1. Allumage électrique (Reset + PowerKey)
 	//Modem_Hard_Init();
 
 	// 2. Configuration logicielle (Baudrate, PIN, Réseau...)
-	ModemStatus status = Modem_Init_Sequence();
+	status = Modem_Init_Sequence();
 
 	if (status != MODEM_OK) {
 		printf("Echec critique de l'initialisation Modem (Code: %d)\n", status);
 		// Ici, tu pourrais décider de bloquer ou de clignoter une LED d'erreur
 		Error_Handler();
 	} else {
-		printf("Modem pret ! Demarrage du RTOS...\n");
+		printf("System fonctionnel\n\n");
 	}
 
 	/* USER CODE END 2 */
