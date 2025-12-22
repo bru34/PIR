@@ -127,6 +127,8 @@ void ThreadAlarm(void *argument)
 		{
 			printf("Alarme VALIDE\n");
 
+			//FIXME : si le modem n'est pas alimenté, on ne traite pas l erreur ???!!
+			// il faut blinder partout (si perte du reseau ...) et refaire l init modem
 			Modem_Send_SMS(PHONE_NUMBER, "ALARME DETECTEE !");
 
 			// On met à jour l'heure du dernier envoi
@@ -358,7 +360,6 @@ int Modem_Get_Signal_Quality(void) {
 	return rssi; // Retourne entre 0 et 31, ou 99/ -1 si erreur
 }
 
-// FIXME : si modem non alimenté, on boucle indéfiniment ici ???
 // Initialisation complète du modem avec réessais
 ModemStatus Modem_Init(void) {
 
@@ -439,6 +440,7 @@ int main(void)
   MX_RTC_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  HAL_Delay(100); // pour stabiliser le convertisseur du STLink et pas louper le 1er caractere
   /* USER CODE END 2 */
 
   /* Init scheduler */
