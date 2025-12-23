@@ -56,6 +56,9 @@ typedef enum {
 #define AT_PIN_CMD "AT+CPIN=\"" PIN_NUMBER "\"\r"
 #define PHONE_NUMBER "+33626031205"
 
+#define MODE_SLEEP_ACTIF HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_SET);
+#define MODE_SLEEP_INACTIF HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_RESET);
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
