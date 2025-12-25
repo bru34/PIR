@@ -2,7 +2,7 @@
 /**
  ******************************************************************************
  * @file           : main.c
- * @brief          : Main program body
+ * @brief          : Main program body - Gestion Modem A7670G (Mode CSCLK=2)
  ******************************************************************************
  */
 /* USER CODE END Header */
@@ -78,14 +78,9 @@ void StartDefaultTask(void *argument);
 /* USER CODE BEGIN PFP */
 char modem_buffer[128] = {0}; // Buffer réception modem
 
-// Fonctions inline pour la gestion DTR (Sleep)
-static inline void Modem_SetSleep(void) {
-	HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_SET);
-}
+// Prototype de la fonction de réveil logiciel
+void Modem_Soft_WakeUp(void);
 
-static inline void Modem_WakeUp(void) {
-	HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_RESET);
-}
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -141,12 +136,11 @@ ModemStatus Modem_Send_AT_Wait(char* cmd, char* expected_resp, uint32_t timeout)
 			}
 		}
 		else if (status == HAL_ERROR) {
-			// <<< CORRECTION MAJEURE ICI >>>
+			// <<< CORRECTION OVERRUN >>>
 			// Si le STM32 détecte une erreur (bruit, overrun), il faut l'acquitter
-			// Sinon il refuse de lire la suite et on part en timeout.
 			if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) {
 				__HAL_UART_CLEAR_OREFLAG(&huart1);
-				// Lecture fictive du DR pour valider le clear (spécifique STM32F4)
+				// Lecture fictive du DR pour valider le clear (F4/F1)
 				volatile uint32_t tmpreg = huart1.Instance->DR;
 				(void)tmpreg;
 			}
@@ -155,6 +149,37 @@ ModemStatus Modem_Send_AT_Wait(char* cmd, char* expected_resp, uint32_t timeout)
 	return ERR_NOT_INITIALIZED; // Timeout
 }
 
+// -------------------------------------------------------------------------
+// REVEIL LOGICIEL (Pour le mode CSCLK=2)
+// -------------------------------------------------------------------------
+// À mettre à la place de la boucle for() dans Modem_Soft_WakeUp
+// Attention : Vérifie que USART1 TX est bien sur PA9 dans ton CubeMX
+void Modem_Soft_WakeUp(void) {
+
+	// 1. On désactive l'UART pour prendre le contrôle de la Pin
+	HAL_UART_DeInit(&huart1);
+
+	// 2. On configure PA9 en Sortie GPIO simple
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+	GPIO_InitStruct.Pin = GPIO_PIN_9;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+	// 3. FORCE LOW : On écrase la ligne à 0V (Start bit infini)
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
+	HAL_Delay(50); // 50ms de "Gifle" électrique
+
+	// 4. On relâche à 1 (Idle)
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+	HAL_Delay(10);
+
+	// 5. On réactive l'UART
+	MX_USART1_UART_Init();
+
+	HAL_Delay(200); // Temps de lock
+}
 // -------------------------------------------------------------------------
 // THREAD ALARME
 // -------------------------------------------------------------------------
@@ -165,31 +190,53 @@ void ThreadAlarm(void *argument)
 
 	for(;;)
 	{
-		// Attente du sémaphore
 		osSemaphoreAcquire(mySemaphoreAlarm, osWaitForever);
 
 		if (HAL_GetTick() - last_sms_tick > SMS_COOLDOWN)
 		{
 			printf("Alarme VALIDE\n");
 
-			// 1. ON RÉVEILLE LE MODEM (Car il dort sûrement)
-			Modem_WakeUp();
-			HAL_Delay(200); // Temps de réveil PLL
+			// --- DEBUT SEQUENCE ROBUSTE DE REVEIL ---
+			int reveil_ok = 0;
+			int essais = 0;
 
-			// 2. Petit "Ping" pour s'assurer que l'UART est synchro
-			Modem_Send_AT_Wait("AT\r", "OK", 200);
+			while(essais < 3 && !reveil_ok) {
+				essais++;
 
-			// 3. Envoi du SMS
-			if (Modem_Send_SMS(PHONE_NUMBER, "ALARME DETECTEE !") == MODEM_OK) {
-				printf("SMS Alarme envoyé.\n");
+				// 1. On stimule la ligne
+				Modem_Soft_WakeUp();
+
+				// 2. On nettoie préventivement l'UART (ORE)
+				if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) {
+					__HAL_UART_CLEAR_OREFLAG(&huart1);
+					volatile uint32_t tmpreg = huart1.Instance->DR; (void)tmpreg;
+				}
+
+				// 3. On teste si le modem répond "OK"
+				// On utilise un timeout court (200ms) pour boucler vite si ça rate
+				if(Modem_Send_AT_Wait("AT\r", "OK", 200) == MODEM_OK) {
+					reveil_ok = 1;
+				} else {
+					// Si échec, on attend un peu plus avant de recommencer
+					printf("\t(Modem dort encore... Essai %d/3)\n", essais);
+					HAL_Delay(200);
+				}
+			}
+			// -----------------------------------------
+
+			if (reveil_ok) {
+				// Le modem est bien réveillé et synchro !
+				if (Modem_Send_SMS(PHONE_NUMBER, "ALARME DETECTEE !") == MODEM_OK) {
+					printf("SMS Alarme envoye.\n");
+				} else {
+					printf("Echec envoi SMS (Reseau ?).\n");
+				}
 			} else {
-				printf("Echec envoi SMS Alarme.\n");
-				// Optionnel : Tenter un Modem_Init() ici si ça échoue
+				printf("Erreur: Le modem refuse de se reveiller apres 3 essais.\n");
+				// Optionnel : Forcer un Modem_Init() complet ici pour le prochain coup
 			}
 
-			// 4. ON RENDORT LE MODEM
-			Modem_SetSleep();
-			printf("Retour veille.\n");
+			printf("Fin transaction. Veille auto dans 5s.\n");
 
 			last_sms_tick = HAL_GetTick();
 			osDelay(500);
@@ -200,11 +247,9 @@ void ThreadAlarm(void *argument)
 		}
 
 		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
-		// Nettoyage sémaphore si accumulation
 		osSemaphoreAcquire(mySemaphoreAlarm, 0);
 	}
 }
-
 // Thread réception (Echo simple pour l'instant)
 void ThreadReception(void *argument)
 {
@@ -215,7 +260,7 @@ void ThreadReception(void *argument)
 }
 
 // -------------------------------------------------------------------------
-// SEQUENCE D'INITIALISATION (Sans Sleep à la fin !)
+// SEQUENCE D'INITIALISATION
 // -------------------------------------------------------------------------
 ModemStatus Modem_Init_Sequence(void) {
 	int retry = 0;
@@ -223,20 +268,41 @@ ModemStatus Modem_Init_Sequence(void) {
 
 	memset(modem_buffer, 0, sizeof(modem_buffer));
 
+	// 0. BOURRINAGE (Force Autobauding pour prendre la main)
+	for(int i=0; i<10; i++) {
+		HAL_UART_Transmit(&huart1, (uint8_t*)"AT\r", 3, 10);
+		HAL_Delay(50);
+	}
+	// Nettoyage ORE
+	if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) {
+		__HAL_UART_CLEAR_OREFLAG(&huart1);
+		volatile uint32_t tmpreg = huart1.Instance->DR; (void)tmpreg;
+	}
+
+	// 1. Sync Baudrate
 	printf("\tSync baudrate...");
-	while(Modem_Send_AT_Wait("AT\r", "OK", 1000) != MODEM_OK) {
+	while(Modem_Send_AT_Wait("AT\r", "OK", 500) != MODEM_OK) {
 		retry++;
-		if(retry > 5) {
+		if(retry > 10) {
 			printf(" FAIL\n");
 			return ERR_AT_SYNC;
 		}
-		HAL_Delay(500);
+		HAL_Delay(200);
 	}
 	printf(" OK\n");
 
+	// --- AJOUT CRUCIAL : FIXER LA VITESSE ET SAUVEGARDER ---
+	// Cela empêche le modem de perdre la synchro pendant le sommeil
+	Modem_Send_AT_Wait("AT+IPR=115200\r", "OK", 1000);
+	Modem_Send_AT_Wait("AT&W\r", "OK", 1000); // Sauvegarde en mémoire flash
+	// -------------------------------------------------------
+
+	// 2. Configs de base
 	if (Modem_Send_AT_Wait("ATE0\r", "OK", 1000) != MODEM_OK) return ERR_ATE0;
 	if (Modem_Send_AT_Wait("AT+CMEE=2\r", "OK", 1000) != MODEM_OK) return ERR_CMEE;
+	Modem_Send_AT_Wait("AT+IFC=0,0\r", "OK", 1000);
 
+	// 3. Carte SIM
 	printf("\tVerif SIM...");
 	if (Modem_Send_AT_Wait("AT+CPIN?\r", "+CPIN: READY", 500) != MODEM_OK) {
 		if (Modem_Send_AT_Wait("AT+CPIN?\r", "+CPIN: SIM PIN", 500) == MODEM_OK) {
@@ -247,8 +313,10 @@ ModemStatus Modem_Init_Sequence(void) {
 	}
 	printf(" OK\n");
 
+	// 4. Réseau
 	printf("\tVerif Reseau... ");
 	if (Modem_Send_AT_Wait("AT+CREG?\r", "OK", 5000) == MODEM_OK) {
+		// Accepte Home(1), Roaming(5), SMS Home(6), SMS Roaming(7)
 		if (strstr(modem_buffer, "+CREG: 0,1") || strstr(modem_buffer, "+CREG: 0,5") ||
 				strstr(modem_buffer, "+CREG: 0,6") || strstr(modem_buffer, "+CREG: 0,7"))
 		{
@@ -260,17 +328,16 @@ ModemStatus Modem_Init_Sequence(void) {
 		}
 	}
 
+	// Mise à l'heure réseau
 	if (Modem_Send_AT_Wait("AT+CTZU=1\r", "OK", 1000) != MODEM_OK) return ERR_CTZU;
 
-	// Envoi du SMS de bienvenue
-	// Note : On ne met pas le modem en veille ici !
-	retVal = Modem_Send_SMS(PHONE_NUMBER, "Big Brother is watching you...");
+	// Envoi du SMS de test
+	retVal = Modem_Send_SMS(PHONE_NUMBER, "System Start - Mode 2 Ready");
 
 	return retVal;
 }
-
 // -------------------------------------------------------------------------
-// ENVOI SMS (Fonction pure, sans gestion de veille)
+// ENVOI SMS
 // -------------------------------------------------------------------------
 ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 	char cmd[64];
@@ -297,7 +364,6 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 	// 4. Confirmation (Timeout long)
 	if (Modem_Send_AT_Wait("", "OK", 10000) != MODEM_OK) {
 		printf(" FAIL (Pas de confirmation)\n");
-		// On retourne OK quand même si le message est probablement parti
 	} else {
 		printf("OK\n");
 	}
@@ -322,9 +388,8 @@ ModemStatus Modem_Init(void) {
 	ModemStatus status = ERR_NOT_INITIALIZED;
 	int tentative = 0;
 
-	// 1. RÉVEIL INITIAL (Vital si reboot MCU mais pas Modem)
-	Modem_WakeUp();
-	HAL_Delay(500);
+	// 1. Réveil initial par logiciel
+	Modem_Soft_WakeUp();
 
 	printf("Demarrage Modem:\n");
 
@@ -338,14 +403,16 @@ ModemStatus Modem_Init(void) {
 		if (status == MODEM_OK) break;
 
 		if (tentative < 3) {
-			printf("\tEchec. Reset...\n");
-			Modem_Send_AT_Wait("AT+CRESET\r", "OK", 1000);
-			HAL_Delay(5000); // Temps de reboot
-			Modem_WakeUp();  // On force DTR Low après reboot
+			printf("\tEchec. Retry dans 5s...\n");
+			// On ne peut pas hard-reset via PWRKEY, donc on attend juste.
+			// On peut essayer un soft reset si l'UART répondait un peu
+			HAL_UART_Transmit(&huart1, (uint8_t*)"AT+CRESET\r", 10, 100);
+			HAL_Delay(5000);
+			Modem_Soft_WakeUp();
 		}
 	} while (tentative < 3);
 
-	// 3. Verdict & Mise en veille
+	// 3. Verdict & Mise en veille AUTO (CSCLK=2)
 	if (status != MODEM_OK) {
 		printf("!! Echec critique !!\n");
 		Error_Handler();
@@ -353,28 +420,13 @@ ModemStatus Modem_Init(void) {
 	else {
 		printf("Systeme fonctionnel.\n");
 
-		// C'EST ICI QU'ON ACTIVE LE SLEEP
-		// Le modem est actuellement réveillé (DTR Low) depuis le début de la fonction
-
-		// a. Commande logicielle
-		if (Modem_Send_AT_Wait("AT+CSCLK=1\r", "OK", 1000) != MODEM_OK) {
-			printf("Erreur activation CSCLK\n");
-		}
-
-		// b. VÉRIFICATION (Ceinture et bretelles)
-		// On interroge le modem pour être sûr qu'il a bien pris l'ordre
-		// Le modem doit répondre un truc du genre "+CSCLK: 1"
-		if (Modem_Send_AT_Wait("AT+CSCLK?\r", "+CSCLK: 1", 1000) != MODEM_OK) {
-			printf("ATTENTION: Le modem refuse le mode Sleep (Reste en mode actif)\n");
-			// Optionnel : Retenter l'envoi
-			Modem_Send_AT_Wait("AT+CSCLK=1\r", "OK", 500);
+		// C'EST ICI QU'ON CONFIGURE LA VEILLE AUTOMATIQUE
+		// Mode 2 : Le modem dort s'il n'y a pas de trafic TX/RX
+		if (Modem_Send_AT_Wait("AT+CSCLK=2\r", "OK", 1000) != MODEM_OK) {
+			printf("Erreur activation CSCLK=2\n");
 		} else {
-			printf("Confirmation: Mode Sleep active (CSCLK=1)\n");
+			printf("Mode Sleep Auto (CSCLK=2) active. Silence = Dodo.\n");
 		}
-
-
-		HAL_Delay(100);
-		Modem_SetSleep();
 	}
 	return status;
 }
@@ -408,7 +460,7 @@ int main(void)
 	const osThreadAttr_t highAttr = { .name = "HighThread", .priority = osPriorityHigh };
 	const osThreadAttr_t lowAttr = { .name = "LowThread", .priority = osPriorityBelowNormal };
 
-	// Initialisation Modem (Wake -> Init -> Sleep)
+	// Initialisation Modem
 	Modem_Init();
 
 	osThreadNew(ThreadAlarm, NULL, &highAttr);
@@ -515,7 +567,8 @@ static void MX_GPIO_Init(void)
 	__HAL_RCC_GPIOA_CLK_ENABLE();
 	__HAL_RCC_GPIOB_CLK_ENABLE();
 
-	HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_RESET);
+	// Note : On ne configure plus de GPIO pour le SLEEP ici, car on utilise CSCLK=2
+	// Seul LD2 reste
 	HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 
 	GPIO_InitStruct.Pin = B1_Pin;
@@ -523,6 +576,7 @@ static void MX_GPIO_Init(void)
 	GPIO_InitStruct.Pull = GPIO_PULLUP;
 	HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
+	// Si tu as gardé le GPIO Sleep dans le .ioc, on le laisse en sortie mais on ne l'utilise plus
 	GPIO_InitStruct.Pin = MODEM_SLEEP_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
