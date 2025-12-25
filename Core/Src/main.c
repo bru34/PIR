@@ -39,6 +39,8 @@ typedef enum {
 	ERR_SMS_FORMAT,
 	ERR_SMS_NUMBER,
 	ERR_SMS_BODY,
+	ERR_SETBAUD,
+	ERR_WRITEFLASH,
 } ModemStatus;
 
 #define PIN_NUMBER "667234"
@@ -293,8 +295,17 @@ ModemStatus Modem_Init_Sequence(void) {
 
 	// --- AJOUT CRUCIAL : FIXER LA VITESSE ET SAUVEGARDER ---
 	// Cela empêche le modem de perdre la synchro pendant le sommeil
-	Modem_Send_AT_Wait("AT+IPR=115200\r", "OK", 1000);
-	Modem_Send_AT_Wait("AT&W\r", "OK", 1000); // Sauvegarde en mémoire flash
+	if (Modem_Send_AT_Wait("AT+IPR=115200\r", "OK", 1000)){
+		printf(" ERR_SETBAUD\n");
+		return ERR_SETBAUD;
+	}
+
+	HAL_Delay(200);
+
+	if (Modem_Send_AT_Wait("AT&W\r", "OK", 1000)){
+		printf(" ERR_WRITEFLASH\n");
+		return ERR_WRITEFLASH; // Sauvegarde en mémoire flash
+	}
 	// -------------------------------------------------------
 
 	// 2. Configs de base
@@ -425,7 +436,7 @@ ModemStatus Modem_Init(void) {
 		if (Modem_Send_AT_Wait("AT+CSCLK=2\r", "OK", 1000) != MODEM_OK) {
 			printf("Erreur activation CSCLK=2\n");
 		} else {
-			printf("Mode Sleep Auto (CSCLK=2) active. Silence = Dodo.\n");
+			printf("Mode Sleep Auto (CSCLK=2) active.\n");
 		}
 	}
 	return status;
