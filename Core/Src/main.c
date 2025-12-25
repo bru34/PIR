@@ -6,7 +6,6 @@
  ******************************************************************************
  */
 /* USER CODE END Header */
-
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
@@ -56,6 +55,7 @@ typedef enum {
 
 /* Private variables ---------------------------------------------------------*/
 RTC_HandleTypeDef hrtc;
+
 UART_HandleTypeDef huart1;
 
 /* Definitions for defaultTask */
@@ -79,10 +79,6 @@ void StartDefaultTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 char modem_buffer[128] = {0}; // Buffer réception modem
-
-// Prototype de la fonction de réveil logiciel
-void Modem_Soft_WakeUp(void);
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -92,6 +88,8 @@ ModemStatus Modem_Init(void);
 ModemStatus Modem_Init_Sequence(void);
 ModemStatus Modem_Send_SMS(char*, char* );
 ModemStatus Modem_Send_AT_Wait(char*, char*, uint32_t);
+void Modem_WakeUp(void);
+void Modem_Sleep(void);
 
 // Redirection de printf vers ITM (SWO)
 int _write(int file, char *ptr, int len)
@@ -99,6 +97,15 @@ int _write(int file, char *ptr, int len)
 	for (int i = 0; i < len; i++)
 		ITM_SendChar(*ptr++);
 	return len;
+}
+
+void Modem_WakeUp() {
+	HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_RESET);
+	HAL_Delay(100);
+}
+
+void Modem_Sleep() {
+	HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_SET);
 }
 
 // -------------------------------------------------------------------------
@@ -152,37 +159,6 @@ ModemStatus Modem_Send_AT_Wait(char* cmd, char* expected_resp, uint32_t timeout)
 }
 
 // -------------------------------------------------------------------------
-// REVEIL LOGICIEL (Pour le mode CSCLK=2)
-// -------------------------------------------------------------------------
-// À mettre à la place de la boucle for() dans Modem_Soft_WakeUp
-// Attention : Vérifie que USART1 TX est bien sur PA9 dans ton CubeMX
-void Modem_Soft_WakeUp(void) {
-
-	// 1. On désactive l'UART pour prendre le contrôle de la Pin
-	HAL_UART_DeInit(&huart1);
-
-	// 2. On configure PA9 en Sortie GPIO simple
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-	GPIO_InitStruct.Pin = GPIO_PIN_9;
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-	// 3. FORCE LOW : On écrase la ligne à 0V (Start bit infini)
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
-	HAL_Delay(50); // 50ms de "Gifle" électrique
-
-	// 4. On relâche à 1 (Idle)
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
-	HAL_Delay(10);
-
-	// 5. On réactive l'UART
-	MX_USART1_UART_Init();
-
-	HAL_Delay(200); // Temps de lock
-}
-// -------------------------------------------------------------------------
 // THREAD ALARME
 // -------------------------------------------------------------------------
 void ThreadAlarm(void *argument)
@@ -204,9 +180,6 @@ void ThreadAlarm(void *argument)
 
 			while(essais < 3 && !reveil_ok) {
 				essais++;
-
-				// 1. On stimule la ligne
-				Modem_Soft_WakeUp();
 
 				// 2. On nettoie préventivement l'UART (ORE)
 				if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) {
@@ -354,6 +327,9 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 	char cmd[64];
 	uint8_t ctrlz = 26;
 
+	// 0. reveil modem
+	Modem_WakeUp();
+
 	// 1. Passage en mode Texte
 	if (Modem_Send_AT_Wait("AT+CMGF=1\r", "OK", 1000) != MODEM_OK) {
 		return ERR_SMS_FORMAT;
@@ -379,6 +355,9 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 		printf("OK\n");
 	}
 
+	// 5. Modem en sommeil
+	Modem_Sleep();
+
 	return MODEM_OK;
 }
 
@@ -399,10 +378,10 @@ ModemStatus Modem_Init(void) {
 	ModemStatus status = ERR_NOT_INITIALIZED;
 	int tentative = 0;
 
-	// 1. Réveil initial par logiciel
-	Modem_Soft_WakeUp();
-
 	printf("Demarrage Modem:\n");
+
+	// 1. reveil par DTR
+
 
 	// 2. Boucle d'initialisation
 	do {
@@ -419,7 +398,6 @@ ModemStatus Modem_Init(void) {
 			// On peut essayer un soft reset si l'UART répondait un peu
 			HAL_UART_Transmit(&huart1, (uint8_t*)"AT+CRESET\r", 10, 100);
 			HAL_Delay(5000);
-			Modem_Soft_WakeUp();
 		}
 	} while (tentative < 3);
 
@@ -431,12 +409,10 @@ ModemStatus Modem_Init(void) {
 	else {
 		printf("Systeme fonctionnel.\n");
 
-		// C'EST ICI QU'ON CONFIGURE LA VEILLE AUTOMATIQUE
-		// Mode 2 : Le modem dort s'il n'y a pas de trafic TX/RX
-		if (Modem_Send_AT_Wait("AT+CSCLK=2\r", "OK", 1000) != MODEM_OK) {
-			printf("Erreur activation CSCLK=2\n");
+		if (Modem_Send_AT_Wait("AT+CSCLK=1\r", "OK", 1000) != MODEM_OK) {
+			printf("Erreur activation CSCLK=1\n");
 		} else {
-			printf("Mode Sleep Auto (CSCLK=2) active.\n");
+			printf("Mode DTR Sleep (CSCLK=1) active.\n");
 		}
 	}
 	return status;
@@ -450,49 +426,99 @@ ModemStatus Modem_Init(void) {
  */
 int main(void)
 {
-	/* MCU Configuration */
+
+	/* USER CODE BEGIN 1 */
+
+	/* USER CODE END 1 */
+
+	/* MCU Configuration--------------------------------------------------------*/
+
+	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
 	HAL_Init();
+
+	/* USER CODE BEGIN Init */
+
+	/* USER CODE END Init */
+
+	/* Configure the system clock */
 	SystemClock_Config();
+
+	/* USER CODE BEGIN SysInit */
+
+	/* USER CODE END SysInit */
+
+	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
 	MX_RTC_Init();
 	MX_USART1_UART_Init();
+	/* USER CODE BEGIN 2 */
 
-	HAL_Delay(100);
+	/* USER CODE END 2 */
 
+	/* Init scheduler */
 	osKernelInitialize();
 
-	const osSemaphoreAttr_t mySemaphoreAlarm_attributes = { .name = "mySemaphoreAlarm" };
-	mySemaphoreAlarm = osSemaphoreNew(1, 0, &mySemaphoreAlarm_attributes);
+	/* USER CODE BEGIN RTOS_MUTEX */
+	/* add mutexes, ... */
+	/* USER CODE END RTOS_MUTEX */
 
-	if (mySemaphoreAlarm == NULL) Error_Handler();
+	/* USER CODE BEGIN RTOS_SEMAPHORES */
+	/* add semaphores, ... */
+	/* USER CODE END RTOS_SEMAPHORES */
 
+	/* USER CODE BEGIN RTOS_TIMERS */
+	/* start timers, add new ones, ... */
+	/* USER CODE END RTOS_TIMERS */
+
+	/* USER CODE BEGIN RTOS_QUEUES */
+	/* add queues, ... */
+	/* USER CODE END RTOS_QUEUES */
+
+	/* Create the thread(s) */
+	/* creation of defaultTask */
 	defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
-	const osThreadAttr_t highAttr = { .name = "HighThread", .priority = osPriorityHigh };
-	const osThreadAttr_t lowAttr = { .name = "LowThread", .priority = osPriorityBelowNormal };
+	/* USER CODE BEGIN RTOS_THREADS */
+	/* add threads, ... */
+	/* USER CODE END RTOS_THREADS */
 
-	// Initialisation Modem
-	Modem_Init();
+	/* USER CODE BEGIN RTOS_EVENTS */
+	/* add events, ... */
+	/* USER CODE END RTOS_EVENTS */
 
-	osThreadNew(ThreadAlarm, NULL, &highAttr);
-	osThreadNew(ThreadReception, NULL, &lowAttr);
-
+	/* Start scheduler */
 	osKernelStart();
 
-	while (1) {}
+	/* We should never get here as control is now taken by the scheduler */
+
+	/* Infinite loop */
+	/* USER CODE BEGIN WHILE */
+	while (1)
+	{
+		/* USER CODE END WHILE */
+
+		/* USER CODE BEGIN 3 */
+	}
+	/* USER CODE END 3 */
 }
 
 /**
  * @brief System Clock Configuration
+ * @retval None
  */
 void SystemClock_Config(void)
 {
 	RCC_OscInitTypeDef RCC_OscInitStruct = {0};
 	RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
+	/** Configure the main internal regulator output voltage
+	 */
 	__HAL_RCC_PWR_CLK_ENABLE();
 	__HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE3);
 
+	/** Initializes the RCC Oscillators according to the specified parameters
+	 * in the RCC_OscInitTypeDef structure.
+	 */
 	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
 	RCC_OscInitStruct.LSEState = RCC_LSE_OFF;
 	RCC_OscInitStruct.HSIState = RCC_HSI_ON;
@@ -505,22 +531,48 @@ void SystemClock_Config(void)
 	RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
 	RCC_OscInitStruct.PLL.PLLQ = 2;
 	RCC_OscInitStruct.PLL.PLLR = 2;
-	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) Error_Handler();
+	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+	{
+		Error_Handler();
+	}
 
-	RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK|RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+	/** Initializes the CPU, AHB and APB buses clocks
+	 */
+	RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+			|RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
 	RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
 	RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
 	RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
 	RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) Error_Handler();
+
+	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+	{
+		Error_Handler();
+	}
 }
 
+/**
+ * @brief RTC Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_RTC_Init(void)
 {
+
+	/* USER CODE BEGIN RTC_Init 0 */
+
+	/* USER CODE END RTC_Init 0 */
+
 	RTC_TimeTypeDef sTime = {0};
 	RTC_DateTypeDef sDate = {0};
 	RTC_AlarmTypeDef sAlarm = {0};
 
+	/* USER CODE BEGIN RTC_Init 1 */
+
+	/* USER CODE END RTC_Init 1 */
+
+	/** Initialize RTC Only
+	 */
 	hrtc.Instance = RTC;
 	hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
 	hrtc.Init.AsynchPrediv = 127;
@@ -528,21 +580,38 @@ static void MX_RTC_Init(void)
 	hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
 	hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
 	hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
-	if (HAL_RTC_Init(&hrtc) != HAL_OK) Error_Handler();
+	if (HAL_RTC_Init(&hrtc) != HAL_OK)
+	{
+		Error_Handler();
+	}
 
+	/* USER CODE BEGIN Check_RTC_BKUP */
+
+	/* USER CODE END Check_RTC_BKUP */
+
+	/** Initialize RTC and set the Time and Date
+	 */
 	sTime.Hours = 0x0;
 	sTime.Minutes = 0x0;
 	sTime.Seconds = 0x0;
 	sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
 	sTime.StoreOperation = RTC_STOREOPERATION_RESET;
-	if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK) Error_Handler();
-
+	if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+	{
+		Error_Handler();
+	}
 	sDate.WeekDay = RTC_WEEKDAY_MONDAY;
 	sDate.Month = RTC_MONTH_JANUARY;
 	sDate.Date = 0x1;
 	sDate.Year = 0x0;
-	if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK) Error_Handler();
 
+	if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
+	{
+		Error_Handler();
+	}
+
+	/** Enable the Alarm A
+	 */
 	sAlarm.AlarmTime.Hours = 0x0;
 	sAlarm.AlarmTime.Minutes = 0x0;
 	sAlarm.AlarmTime.Seconds = 0x0;
@@ -554,11 +623,31 @@ static void MX_RTC_Init(void)
 	sAlarm.AlarmDateWeekDaySel = RTC_ALARMDATEWEEKDAYSEL_DATE;
 	sAlarm.AlarmDateWeekDay = 0x1;
 	sAlarm.Alarm = RTC_ALARM_A;
-	if (HAL_RTC_SetAlarm_IT(&hrtc, &sAlarm, RTC_FORMAT_BCD) != HAL_OK) Error_Handler();
+	if (HAL_RTC_SetAlarm_IT(&hrtc, &sAlarm, RTC_FORMAT_BCD) != HAL_OK)
+	{
+		Error_Handler();
+	}
+	/* USER CODE BEGIN RTC_Init 2 */
+
+	/* USER CODE END RTC_Init 2 */
+
 }
 
+/**
+ * @brief USART1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_USART1_UART_Init(void)
 {
+
+	/* USER CODE BEGIN USART1_Init 0 */
+
+	/* USER CODE END USART1_Init 0 */
+
+	/* USER CODE BEGIN USART1_Init 1 */
+
+	/* USER CODE END USART1_Init 1 */
 	huart1.Instance = USART1;
 	huart1.Init.BaudRate = 115200;
 	huart1.Init.WordLength = UART_WORDLENGTH_8B;
@@ -567,38 +656,59 @@ static void MX_USART1_UART_Init(void)
 	huart1.Init.Mode = UART_MODE_TX_RX;
 	huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
 	huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-	if (HAL_UART_Init(&huart1) != HAL_OK) Error_Handler();
+	if (HAL_UART_Init(&huart1) != HAL_OK)
+	{
+		Error_Handler();
+	}
+	/* USER CODE BEGIN USART1_Init 2 */
+
+	/* USER CODE END USART1_Init 2 */
+
 }
 
+/**
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_GPIO_Init(void)
 {
 	GPIO_InitTypeDef GPIO_InitStruct = {0};
+	/* USER CODE BEGIN MX_GPIO_Init_1 */
 
+	/* USER CODE END MX_GPIO_Init_1 */
+
+	/* GPIO Ports Clock Enable */
 	__HAL_RCC_GPIOC_CLK_ENABLE();
 	__HAL_RCC_GPIOA_CLK_ENABLE();
 	__HAL_RCC_GPIOB_CLK_ENABLE();
 
-	// Note : On ne configure plus de GPIO pour le SLEEP ici, car on utilise CSCLK=2
-	// Seul LD2 reste
+	/*Configure GPIO pin Output Level */
+	HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_RESET);
+
+	/*Configure GPIO pin Output Level */
 	HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 
+	/*Configure GPIO pin : B1_Pin */
 	GPIO_InitStruct.Pin = B1_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
 	GPIO_InitStruct.Pull = GPIO_PULLUP;
 	HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-	// Si tu as gardé le GPIO Sleep dans le .ioc, on le laisse en sortie mais on ne l'utilise plus
+	/*Configure GPIO pin : MODEM_SLEEP_Pin */
 	GPIO_InitStruct.Pin = MODEM_SLEEP_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(MODEM_SLEEP_GPIO_Port, &GPIO_InitStruct);
 
+	/*Configure GPIO pin : ALARM_Pin */
 	GPIO_InitStruct.Pin = ALARM_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
 	GPIO_InitStruct.Pull = GPIO_PULLUP;
 	HAL_GPIO_Init(ALARM_GPIO_Port, &GPIO_InitStruct);
 
+	/*Configure GPIO pins : PA2 PA3 */
 	GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
 	GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -606,45 +716,96 @@ static void MX_GPIO_Init(void)
 	GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
 	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+	/*Configure GPIO pin : LD2_Pin */
 	GPIO_InitStruct.Pin = LD2_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
 
+	/* EXTI interrupt init*/
 	HAL_NVIC_SetPriority(EXTI0_IRQn, 5, 0);
 	HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+
 	HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
 	HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
+	/* USER CODE BEGIN MX_GPIO_Init_2 */
+
+	/* USER CODE END MX_GPIO_Init_2 */
 }
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-	if (GPIO_Pin == GPIO_PIN_0) {
-		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET);
-		osSemaphoreRelease(mySemaphoreAlarm);
-	}
-}
+/* USER CODE BEGIN 4 */
 
+/* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+ * @brief  Function implementing the defaultTask thread.
+ * @param  argument: Not used
+ * @retval None
+ */
+/* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void *argument)
 {
-	osThreadTerminate(NULL);
-	for(;;) {}
+	/* USER CODE BEGIN 5 */
+	/* Infinite loop */
+	for(;;)
+	{
+		osDelay(1);
+	}
+	/* USER CODE END 5 */
 }
 
+/**
+ * @brief  Period elapsed callback in non blocking mode
+ * @note   This function is called  when TIM1 interrupt took place, inside
+ * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+ * a global variable "uwTick" used as application time base.
+ * @param  htim : TIM handle
+ * @retval None
+ */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	if (htim->Instance == TIM1) {
+	/* USER CODE BEGIN Callback 0 */
+
+	/* USER CODE END Callback 0 */
+	if (htim->Instance == TIM1)
+	{
 		HAL_IncTick();
 	}
+	/* USER CODE BEGIN Callback 1 */
+
+	/* USER CODE END Callback 1 */
 }
 
+/**
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
+	/* USER CODE BEGIN Error_Handler_Debug */
+	/* User can add his own implementation to report the HAL error return state */
 	__disable_irq();
-	while (1) {}
+	while (1)
+	{
+	}
+	/* USER CODE END Error_Handler_Debug */
 }
-
 #ifdef USE_FULL_ASSERT
-void assert_failed(uint8_t *file, uint32_t line) {}
-#endif
+/**
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
+void assert_failed(uint8_t *file, uint32_t line)
+{
+	/* USER CODE BEGIN 6 */
+	/* User can add his own implementation to report the file name and line number,
+     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+	/* USER CODE END 6 */
+}
+#endif /* USE_FULL_ASSERT */
