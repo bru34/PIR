@@ -40,6 +40,7 @@ typedef enum {
 	ERR_SMS_BODY,
 	ERR_SETBAUD,
 	ERR_WRITEFLASH,
+	ERR_NOT_ALIVE,
 } ModemStatus;
 
 #define PIN_NUMBER "667234"
@@ -90,6 +91,7 @@ ModemStatus Modem_Send_SMS(char*, char* );
 ModemStatus Modem_Send_AT_Wait(char*, char*, uint32_t);
 void Modem_WakeUp(void);
 void Modem_Sleep(void);
+ModemStatus Modem_Check_Alive(void);
 
 // Redirection de printf vers ITM (SWO)
 int _write(int file, char *ptr, int len)
@@ -106,6 +108,34 @@ void Modem_WakeUp() {
 
 void Modem_Sleep() {
 	HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_SET);
+}
+
+ModemStatus Modem_Check_Alive() {
+    int essais_max = 10;
+
+    for (int i = 0; i < essais_max; i++) {
+
+        // 1. On tente UN SEUL "AT"
+        printf("Ping modem (%d/%d)...\n", i+1, essais_max);
+
+        // Si tu utilises ta fonction qui attend la réponse :
+        if (Modem_Send_AT_Wait("AT\r", "OK", 200) == 0) { // Timeout court (200ms)
+
+            // 2. VICTOIRE ! On a eu "OK".
+            // On ne spamme plus, on sort immédiatement.
+            printf(" -> Modem repond ! On arrete le spam.\n");
+
+            // Petit délai de sécurité pour vider les buffers si besoin
+            HAL_Delay(50);
+            return MODEM_OK; // Succès
+        }
+
+        // 3. ECHEC : On attend un peu avant de retenter
+        // C'est ce délai qui permet au modem de reprendre ses esprits
+        HAL_Delay(10);
+    }
+
+    return ERR_NOT_ALIVE; // Le modem est mort ou sourd
 }
 
 // -------------------------------------------------------------------------
@@ -244,10 +274,11 @@ ModemStatus Modem_Init_Sequence(void) {
 	memset(modem_buffer, 0, sizeof(modem_buffer));
 
 	// 0. BOURRINAGE (Force Autobauding pour prendre la main)
-	for(int i=0; i<10; i++) {
-		HAL_UART_Transmit(&huart1, (uint8_t*)"AT\r", 3, 10);
-		HAL_Delay(50);
+	if ( Modem_Check_Alive() != MODEM_OK ) {
+				printf("Modem non joignable apres 10 essais.\n");
+				return ERR_NOT_INITIALIZED;
 	}
+
 	// Nettoyage ORE
 	if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) {
 		__HAL_UART_CLEAR_OREFLAG(&huart1);
@@ -318,6 +349,7 @@ ModemStatus Modem_Init_Sequence(void) {
 	// Envoi du SMS de test
 	retVal = Modem_Send_SMS(PHONE_NUMBER, "System Start - Mode 2 Ready");
 
+	Modem_Sleep();
 	return retVal;
 }
 // -------------------------------------------------------------------------
@@ -332,6 +364,7 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 
 	// 1. Passage en mode Texte
 	if (Modem_Send_AT_Wait("AT+CMGF=1\r", "OK", 1000) != MODEM_OK) {
+		Modem_Sleep();
 		return ERR_SMS_FORMAT;
 	}
 
@@ -341,6 +374,7 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 
 	if (Modem_Send_AT_Wait(cmd, ">", 2000) != MODEM_OK) {
 		printf("Erreur Prompt >\n");
+		Modem_Sleep();
 		return ERR_SMS_NUMBER;
 	}
 
@@ -381,7 +415,7 @@ ModemStatus Modem_Init(void) {
 	printf("Demarrage Modem:\n");
 
 	// 1. reveil par DTR
-
+	Modem_WakeUp();
 
 	// 2. Boucle d'initialisation
 	do {
