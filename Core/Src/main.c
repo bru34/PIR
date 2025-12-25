@@ -463,7 +463,10 @@ int main(void)
 	/* USER CODE END RTOS_MUTEX */
 
 	/* USER CODE BEGIN RTOS_SEMAPHORES */
-	/* add semaphores, ... */
+	const osSemaphoreAttr_t mySemaphoreAlarm_attributes = { .name = "mySemaphoreAlarm" };
+	mySemaphoreAlarm = osSemaphoreNew(1, 0, &mySemaphoreAlarm_attributes);
+
+	if (mySemaphoreAlarm == NULL) Error_Handler();
 	/* USER CODE END RTOS_SEMAPHORES */
 
 	/* USER CODE BEGIN RTOS_TIMERS */
@@ -479,7 +482,13 @@ int main(void)
 	defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
 	/* USER CODE BEGIN RTOS_THREADS */
-	/* add threads, ... */
+	const osThreadAttr_t highAttr = { .name = "HighThread", .priority = osPriorityHigh };
+	const osThreadAttr_t lowAttr = { .name = "LowThread", .priority = osPriorityBelowNormal };
+
+	Modem_Init();
+
+	osThreadNew(ThreadAlarm, NULL, &highAttr);
+	osThreadNew(ThreadReception, NULL, &lowAttr);
 	/* USER CODE END RTOS_THREADS */
 
 	/* USER CODE BEGIN RTOS_EVENTS */
