@@ -295,7 +295,7 @@ ModemStatus Modem_Init_Sequence(void) {
 
 	// --- AJOUT CRUCIAL : FIXER LA VITESSE ET SAUVEGARDER ---
 	// Cela empêche le modem de perdre la synchro pendant le sommeil
-	if (Modem_Send_AT_Wait("AT+IPR=115200\r", "OK", 1000)){
+	if (Modem_Send_AT_Wait("AT+IPREX=115200\r", "OK", 1000)){
 		printf(" ERR_SETBAUD\n");
 		return ERR_SETBAUD;
 	}
