@@ -382,7 +382,7 @@ int Modem_Get_Signal_Quality(void) {
 }
 
 // -------------------------------------------------------------------------
-// INITIALISATION GENERALE
+// INITIALISATION GENERALE - Veille AUTO CSCLK=2
 // -------------------------------------------------------------------------
 ModemStatus Modem_Init(void) {
 	ModemStatus status = ERR_NOT_INITIALIZED;
