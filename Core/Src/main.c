@@ -137,7 +137,7 @@ ModemStatus SetSleepMode(int mode) {
 }
 
 ModemStatus Modem_Check_Alive() {
-	int essais_max = 10;
+	int essais_max = 20;
 
 	// On nettoie préventivement l'UART (ORE)
 	if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) {
@@ -151,7 +151,7 @@ ModemStatus Modem_Check_Alive() {
 		printf("Ping modem (%d/%d)...\n", i+1, essais_max);
 
 		// Si tu utilises ta fonction qui attend la réponse :
-		if (Modem_Send_AT_Wait("AT\r", "OK", 100) == MODEM_OK) { // Timeout court (200ms)
+		if (Modem_Send_AT_Wait("AT\r", "OK", 200) == MODEM_OK) { // Timeout court (200ms)
 
 			// 2. VICTOIRE ! On a eu "OK".
 			// On ne spamme plus, on sort immédiatement.
@@ -162,9 +162,7 @@ ModemStatus Modem_Check_Alive() {
 			return MODEM_OK; // Succès
 		}
 
-		// 3. ECHEC : On attend un peu avant de retenter
-		// C'est ce délai qui permet au modem de reprendre ses esprits
-		HAL_Delay(200);
+		HAL_Delay(50);
 	}
 
 	return ERR_NOT_ALIVE; // Le modem est mort ou sourd
@@ -235,9 +233,6 @@ void ThreadAlarm(void *argument)
 		if (HAL_GetTick() - last_sms_tick > SMS_COOLDOWN)
 		{
 			// --- DEBUT SEQUENCE ROBUSTE DE REVEIL ---
-			int status = ERR_NOT_ALIVE;
-			int essais = 0;
-
 			printf("Alarme VALIDE\n");
 
 			Modem_WakeUp();
@@ -446,6 +441,7 @@ ModemStatus Modem_Init(void) {
 	else {
 		printf("Systeme fonctionnel.\n");
 		status = SetSleepMode(SLEEP_MODE_DTR);
+		Modem_Sleep();
 	}
 
 	return status;
