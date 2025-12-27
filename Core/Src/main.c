@@ -111,12 +111,12 @@ int _write(int file, char *ptr, int len)
 
 void gpio_Wakeup(void) {
 	HAL_GPIO_WritePin(gpio_Sleep_GPIO_Port, gpio_Sleep_Pin, GPIO_PIN_SET);
-	HAL_Delay(100);
+	HAL_Delay(50);
 	printf("Modem reveille.\n");
 }
 
 void gpio_Sleep(void) {
-	HAL_Delay(100);
+	HAL_Delay(50);
 	HAL_GPIO_WritePin(gpio_Sleep_GPIO_Port, gpio_Sleep_Pin, GPIO_PIN_RESET);
 	printf("Modem en veille.\n");
 }
@@ -303,8 +303,9 @@ ModemStatus Modem_Init_Sequence(void) {
 	}
 	printf(" OK\n");
 
-	HAL_Delay(200);
+	HAL_Delay(50);
 
+#if 0
 	// 2. Configs de base
 	if (Modem_Send_AT_Wait("AT+IPREX=115200\r", "OK", 1000)) return ERR_SETBAUD;
 	if (Modem_Send_AT_Wait("ATE0\r", "OK", 1000) != MODEM_OK) return ERR_ATE0;
@@ -314,6 +315,8 @@ ModemStatus Modem_Init_Sequence(void) {
 		printf(" ERR_WRITEFLASH\n");
 		return ERR_WRITEFLASH;
 	}
+#endif
+
 	// 3. Carte SIM
 	printf("\tVerif SIM...");
 	if (Modem_Send_AT_Wait("AT+CPIN?\r", "+CPIN: READY", 500) != MODEM_OK) {
@@ -355,7 +358,6 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 	char cmd[64];
 	uint8_t ctrlz = 26;
 
-
 	// 1. Passage en mode Texte
 	if (Modem_Send_AT_Wait("AT+CMGF=1\r", "OK", 1000) != MODEM_OK) {
 		return ERR_SMS_FORMAT;
@@ -377,6 +379,8 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 	// 4. Confirmation (Timeout long)
 	if (Modem_Send_AT_Wait("", "OK", 10000) != MODEM_OK) {
 		printf(" FAIL (Pas de confirmation)\n");
+		//FIXME : si le modem est eteint puis rallume, il faut le reinitialiser, puis renvoyer le SMS : a traiter
+
 	} else {
 		printf("OK\n");
 	}
