@@ -42,6 +42,7 @@ typedef enum {
 	ERR_WRITEFLASH,
 	ERR_NOT_ALIVE,
 	ERR_SLEEPMODE,
+	ERR_IFC,
 } ModemStatus;
 
 typedef enum {
@@ -96,8 +97,8 @@ ModemStatus Modem_Init(void);
 ModemStatus Modem_Init_Sequence(void);
 ModemStatus Modem_Send_SMS(char*, char* );
 ModemStatus Modem_Send_AT_Wait(char*, char*, uint32_t);
-void Modem_WakeUp(void);
-void Modem_Sleep(void);
+void gpio_Wakeup(void);
+void gpio_Sleep(void);
 ModemStatus Modem_Check_Alive(void);
 
 // Redirection de printf vers ITM (SWO)
@@ -108,19 +109,19 @@ int _write(int file, char *ptr, int len)
 	return len;
 }
 
-void Modem_WakeUp(void) {
-	HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_RESET);
+void gpio_Wakeup(void) {
+	HAL_GPIO_WritePin(gpio_Sleep_GPIO_Port, gpio_Sleep_Pin, GPIO_PIN_SET);
 	HAL_Delay(100);
 	printf("Modem reveille.\n");
 }
 
-void Modem_Sleep(void) {
+void gpio_Sleep(void) {
 	HAL_Delay(100);
-	HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(gpio_Sleep_GPIO_Port, gpio_Sleep_Pin, GPIO_PIN_RESET);
 	printf("Modem en veille.\n");
 }
 
-ModemStatus SetSleepMode(int mode) {
+ModemStatus Modem_Set_Sleep_Mode(int mode) {
 
 	char cmd[32];
 
@@ -146,8 +147,6 @@ ModemStatus Modem_Check_Alive() {
 	}
 
 	for (int i = 0; i < essais_max; i++) {
-
-		// 1. On tente UN SEUL "AT"
 		printf("Ping modem (%d/%d)...\n", i+1, essais_max);
 
 		// Si tu utilises ta fonction qui attend la réponse :
@@ -235,7 +234,7 @@ void ThreadAlarm(void *argument)
 			// --- DEBUT SEQUENCE ROBUSTE DE REVEIL ---
 			printf("Alarme VALIDE\n");
 
-			Modem_WakeUp();
+			gpio_Wakeup();
 
 			if (Modem_Check_Alive() == MODEM_OK) {
 				// Le modem est bien réveillé et synchro !
@@ -252,7 +251,7 @@ void ThreadAlarm(void *argument)
 
 			last_sms_tick = HAL_GetTick();
 
-			Modem_Sleep();
+			gpio_Sleep();
 		}
 		else
 		{
@@ -304,26 +303,17 @@ ModemStatus Modem_Init_Sequence(void) {
 	}
 	printf(" OK\n");
 
-	// --- AJOUT CRUCIAL : FIXER LA VITESSE ET SAUVEGARDER ---
-	// Cela empêche le modem de perdre la synchro pendant le sommeil
-	if (Modem_Send_AT_Wait("AT+IPREX=115200\r", "OK", 1000)){
-		printf(" ERR_SETBAUD\n");
-		return ERR_SETBAUD;
-	}
-
 	HAL_Delay(200);
 
-	if (Modem_Send_AT_Wait("AT&W\r", "OK", 1000)){
-		printf(" ERR_WRITEFLASH\n");
-		return ERR_WRITEFLASH; // Sauvegarde en mémoire flash
-	}
-	// -------------------------------------------------------
-
 	// 2. Configs de base
+	if (Modem_Send_AT_Wait("AT+IPREX=115200\r", "OK", 1000)) return ERR_SETBAUD;
 	if (Modem_Send_AT_Wait("ATE0\r", "OK", 1000) != MODEM_OK) return ERR_ATE0;
 	if (Modem_Send_AT_Wait("AT+CMEE=2\r", "OK", 1000) != MODEM_OK) return ERR_CMEE;
-	Modem_Send_AT_Wait("AT+IFC=0,0\r", "OK", 1000);
-
+	if (Modem_Send_AT_Wait("AT+IFC=0\r", "OK", 1000) != MODEM_OK) return ERR_IFC;
+	if (Modem_Send_AT_Wait("AT&W\r", "OK", 1000)){
+		printf(" ERR_WRITEFLASH\n");
+		return ERR_WRITEFLASH;
+	}
 	// 3. Carte SIM
 	printf("\tVerif SIM...");
 	if (Modem_Send_AT_Wait("AT+CPIN?\r", "+CPIN: READY", 500) != MODEM_OK) {
@@ -414,7 +404,7 @@ ModemStatus Modem_Init(void) {
 	printf("Demarrage Modem:\n");
 
 	// 1. reveil par DTR
-	Modem_WakeUp();
+	gpio_Wakeup();
 
 	// 2. Boucle d'initialisation
 	do {
@@ -440,8 +430,8 @@ ModemStatus Modem_Init(void) {
 	}
 	else {
 		printf("Systeme fonctionnel.\n");
-		status = SetSleepMode(SLEEP_MODE_DTR);
-		Modem_Sleep();
+		status = Modem_Set_Sleep_Mode(SLEEP_MODE_DTR);
+		gpio_Sleep();
 	}
 
 	return status;
@@ -723,7 +713,7 @@ static void MX_GPIO_Init(void)
 	__HAL_RCC_GPIOB_CLK_ENABLE();
 
 	/*Configure GPIO pin Output Level */
-	HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(gpio_Sleep_GPIO_Port, gpio_Sleep_Pin, GPIO_PIN_RESET);
 
 	/*Configure GPIO pin Output Level */
 	HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
@@ -734,12 +724,12 @@ static void MX_GPIO_Init(void)
 	GPIO_InitStruct.Pull = GPIO_PULLUP;
 	HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-	/*Configure GPIO pin : MODEM_SLEEP_Pin */
-	GPIO_InitStruct.Pin = MODEM_SLEEP_Pin;
+	/*Configure GPIO pin : gpio_Sleep_Pin */
+	GPIO_InitStruct.Pin = gpio_Sleep_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(MODEM_SLEEP_GPIO_Port, &GPIO_InitStruct);
+	HAL_GPIO_Init(gpio_Sleep_GPIO_Port, &GPIO_InitStruct);
 
 	/*Configure GPIO pin : ALARM_Pin */
 	GPIO_InitStruct.Pin = ALARM_Pin;
