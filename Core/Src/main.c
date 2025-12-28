@@ -223,7 +223,7 @@ ModemStatus Modem_Send_AT_Wait(char* cmd, char* expected_resp, uint32_t timeout)
 void ThreadAlarm(void *argument)
 {
 	static uint32_t last_sms_tick = 0;
-	const uint32_t SMS_COOLDOWN = 10000;
+	const uint32_t SMS_COOLDOWN = 12000;
 
 	for(;;)
 	{
