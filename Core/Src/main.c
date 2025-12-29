@@ -25,7 +25,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define TEST
+//#define TEST
 // Statuts de l'initialisation du modem
 typedef enum {
 	MODEM_OK = 0,
@@ -370,7 +370,7 @@ ModemStatus Modem_Init_Sequence(void) {
 	if (Modem_Send_AT_Wait("AT+CTZU=1\r", "OK", 1000) != MODEM_OK) return ERR_CTZU;
 
 	// Envoi du SMS de test
-	retVal = Modem_Send_SMS(PHONE_NUMBER, "Detecteur actif");
+	retVal = Modem_Send_SMS(PHONE_NUMBER, "Bonjour !");
 
 	return retVal;
 }
@@ -388,9 +388,10 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 
 	// 2. Numéro
 	sprintf(cmd, "AT+CMGS=\"%s\"\r", phone_number);
-	printf("\tEnvoi SMS... ");
+	printf("\tEnvoi SMS <");
+	printf(message);
 
-	if (Modem_Send_AT_Wait(cmd, ">", 2000) != MODEM_OK) {
+	if (Modem_Send_AT_Wait(cmd, ">>", 2000) != MODEM_OK) {
 		printf("Erreur Prompt >\n");
 		return ERR_SMS_NUMBER;
 	}
@@ -400,7 +401,7 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 	HAL_UART_Transmit(&huart1, &ctrlz, 1, 100);
 
 	// 4. Confirmation (Timeout long)
-	if (Modem_Send_AT_Wait("", "OK", 10000) != MODEM_OK) {
+	if (Modem_Send_AT_Wait("", ">> OK", 10000) != MODEM_OK) {
 		printf(" FAIL (Pas de confirmation)\n");
 		//FIXME : si le modem est eteint puis rallume, il faut le reinitialiser, puis renvoyer le SMS : a traiter
 
