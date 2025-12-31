@@ -60,7 +60,46 @@ typedef enum {
 
 #define TIMEOUT_RESET_SIM800 20000
 
-SIM800L_Status SIM800L_SendCommand(char *command);
+typedef enum {
+	MODEM_OK = 0,
+	ERR_NOT_INITIALIZED,
+	ERR_AT_SYNC,
+	ERR_ATE0,
+	ERR_CMEE,
+	ERR_CPIN,
+	ERR_CREG,
+	ERR_CTZU,
+	ERR_SMS_FORMAT,
+	ERR_SMS_NUMBER,
+	ERR_SMS_BODY,
+	ERR_SETBAUD,
+	ERR_WRITEFLASH,
+	ERR_NOT_ALIVE,
+	ERR_SLEEPMODE,
+	ERR_IFC,
+} ModemStatus;
+
+typedef enum {
+	SLEEP_MODE_DISABLE = 0,
+	SLEEP_MODE_DTR,
+	SLEEP_MODE_AUTO,
+} SleepMode;
+
+#define PIN_NUMBER "667234"
+#define AT_PIN_CMD "AT+CPIN=\"" PIN_NUMBER "\"\r"
+#define PHONE_NUMBER "+33626031205"
+#define CLE_API "1CX4AjmP2zlIZe"  // Cle API pour envoi SMS via modem A7670G sur Free mobile
+
+ModemStatus Modem_Init(void);
+ModemStatus Modem_Init_Sequence(void);
+ModemStatus Modem_Send_SMS(char*, char* );
+ModemStatus Modem_Send_AT_Wait(char*, char*, uint32_t);
+ModemStatus Modem_Check_Alive(void);
+int Modem_Get_Signal_Quality(void);
+void gpio_Wakeup(void);
+void gpio_Sleep(void);
+
+
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

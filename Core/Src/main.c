@@ -27,34 +27,6 @@
 /* USER CODE BEGIN PD */
 //#define TEST
 // Statuts de l'initialisation du modem
-typedef enum {
-	MODEM_OK = 0,
-	ERR_NOT_INITIALIZED,
-	ERR_AT_SYNC,
-	ERR_ATE0,
-	ERR_CMEE,
-	ERR_CPIN,
-	ERR_CREG,
-	ERR_CTZU,
-	ERR_SMS_FORMAT,
-	ERR_SMS_NUMBER,
-	ERR_SMS_BODY,
-	ERR_SETBAUD,
-	ERR_WRITEFLASH,
-	ERR_NOT_ALIVE,
-	ERR_SLEEPMODE,
-	ERR_IFC,
-} ModemStatus;
-
-typedef enum {
-	SLEEP_MODE_DISABLE = 0,
-	SLEEP_MODE_DTR,
-	SLEEP_MODE_AUTO,
-} SleepMode;
-
-#define PIN_NUMBER "667234"
-#define AT_PIN_CMD "AT+CPIN=\"" PIN_NUMBER "\"\r"
-#define PHONE_NUMBER "+33626031205"
 
 /* USER CODE END PD */
 
@@ -93,14 +65,7 @@ char modem_buffer[128] = {0}; // Buffer réception modem
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-int Modem_Get_Signal_Quality(void);
-ModemStatus Modem_Init(void);
-ModemStatus Modem_Init_Sequence(void);
-ModemStatus Modem_Send_SMS(char*, char* );
-ModemStatus Modem_Send_AT_Wait(char*, char*, uint32_t);
-void gpio_Wakeup(void);
-void gpio_Sleep(void);
-ModemStatus Modem_Check_Alive(void);
+
 
 // Redirection de printf vers ITM (SWO)
 int _write(int file, char *ptr, int len)
@@ -168,9 +133,6 @@ ModemStatus Modem_Check_Alive() {
 	return ERR_NOT_ALIVE; // Le modem est mort ou sourd
 }
 
-// -------------------------------------------------------------------------
-// FONCTION CRITIQUE : GESTION UART AVEC CORRECTION OVERRUN
-// -------------------------------------------------------------------------
 ModemStatus Modem_Send_AT_Wait(char* cmd, char* expected_resp, uint32_t timeout) {
 
 	// 1. Nettoyage PRÉVENTIF (Si un Overrun traîne, on le vire)
