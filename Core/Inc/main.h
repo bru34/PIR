@@ -89,6 +89,7 @@ typedef enum {
 #define AT_PIN_CMD "AT+CPIN=\"" PIN_NUMBER "\"\r"
 #define PHONE_NUMBER "+33626031205"
 #define CLE_API "1CX4AjmP2zlIZe"  // Cle API pour envoi SMS via modem A7670G sur Free mobile
+#define USER_FREE "50349591"
 
 ModemStatus Modem_Init(void);
 ModemStatus Modem_Init_Sequence(void);
@@ -98,7 +99,8 @@ ModemStatus Modem_Check_Alive(void);
 int Modem_Get_Signal_Quality(void);
 void gpio_Wakeup(void);
 void gpio_Sleep(void);
-
+void A7670_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, char *msg);
+void A7670_Free_Init(void);
 
 /* USER CODE END EFP */
 

@@ -48,7 +48,6 @@ const osThreadAttr_t defaultTask_attributes = {
 		.priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
-osMutexId_t mutexSIM800Send;
 osSemaphoreId_t mySemaphoreAlarm;
 /* USER CODE END PV */
 
@@ -290,7 +289,7 @@ ModemStatus Modem_Init_Sequence(void) {
 
 	HAL_Delay(50);
 
-#if 1
+#if 0
 	// 2. Configs de base
 	if (Modem_Send_AT_Wait("AT+IPREX=115200\r", "OK", 1000)) return ERR_SETBAUD;
 	if (Modem_Send_AT_Wait("ATE0\r", "OK", 1000) != MODEM_OK) return ERR_ATE0;
@@ -315,15 +314,15 @@ ModemStatus Modem_Init_Sequence(void) {
 
 	// 4. Réseau
 	printf("\tVerif Reseau... ");
-	if (Modem_Send_AT_Wait("AT+CREG?\r", "OK", 5000) == MODEM_OK) {
+	if (Modem_Send_AT_Wait("AT+CEREG?\r", "OK", 5000) == MODEM_OK) {
 		// Accepte Home(1), Roaming(5), SMS Home(6), SMS Roaming(7)
-		if (strstr(modem_buffer, "+CREG: 0,1") || strstr(modem_buffer, "+CREG: 0,5") ||
-				strstr(modem_buffer, "+CREG: 0,6") || strstr(modem_buffer, "+CREG: 0,7"))
+		if (strstr(modem_buffer, "+CEREG: 0,1") || strstr(modem_buffer, "+CEREG: 0,5") ||
+				strstr(modem_buffer, "+CEREG: 0,6") || strstr(modem_buffer, "+CEREG: 0,7"))
 		{
 			int niveau = Modem_Get_Signal_Quality();
 			printf("OK [signal: %d/31]\n", niveau);
 		} else {
-			printf(" FAIL (Not registered)\n");
+			printf(" FAIL (Not registered on LTE)\n");
 			return ERR_CREG;
 		}
 	}
@@ -331,17 +330,17 @@ ModemStatus Modem_Init_Sequence(void) {
 	// Mise à l'heure réseau
 	if (Modem_Send_AT_Wait("AT+CTZU=1\r", "OK", 1000) != MODEM_OK) return ERR_CTZU;
 
-	// Envoi du SMS de test
-	retVal = Modem_Send_SMS(PHONE_NUMBER, "Bonjour !");
+	A7670_Free_Init();
 
 	return retVal;
 }
-// -------------------------------------------------------------------------
-// ENVOI SMS
-// -------------------------------------------------------------------------
+
 ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 	char cmd[64];
 	uint8_t ctrlz = 26;
+
+	// on n utilise plus pour le moment ...
+	return MODEM_OK;
 
 	// 1. Passage en mode Texte
 	if (Modem_Send_AT_Wait("AT+CMGF=1\r", "OK", 1000) != MODEM_OK) {
@@ -372,6 +371,48 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 	}
 
 	return MODEM_OK;
+}
+
+
+/* * Fonction pour envoyer une notif Free Mobile via A7670 (Data/HTTPS)
+ * huart : pointeur vers ton UART (ex: &huart1)
+ * user  : ton identifiant Free (ex: "12345678")
+ * pass  : ta clé API (ex: "AbCdEfGhIjK")
+ * msg   : le message (ATTENTION: Pas d'espaces, utilise des %20 ou des underscores)
+ */
+void A7670_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, char *msg) {
+    char buffer[512]; // Buffer large pour contenir l'URL complète
+
+    // --- Étape 1 : Initialiser le service HTTP ---
+    HAL_UART_Transmit(huart, (uint8_t*)"AT+HTTPINIT\r\n", 13, 1000);
+    HAL_Delay(500); // Petit délai de sécurité
+
+    // --- Étape 2 : Construire et envoyer l'URL ---
+    // On insère l'user, le pass et le msg dans la commande AT
+    // Note : Le A7670 attend des guillemets autour de l'URL, d'où les \"
+    sprintf(buffer, "AT+HTTPPARA=\"URL\",\"https://smsapi.free-mobile.fr/sendmsg?user=%s&pass=%s&msg=%s\"\r\n", user, pass, msg);
+
+    HAL_UART_Transmit(huart, (uint8_t*)buffer, strlen(buffer), 2000);
+    HAL_Delay(500);
+
+    // --- Étape 3 : Lancer la requête GET ---
+    HAL_UART_Transmit(huart, (uint8_t*)"AT+HTTPACTION=0\r\n", 17, 1000);
+
+    // --- Étape 4 : Attendre la transmission ---
+    // Le réseau peut mettre 1 à 3 secondes à répondre.
+    // Dans un code bloquant simple, on attend.
+    // (Dans un code avancé, on écouterait l'UART pour recevoir "+HTTPACTION: 0,200,0")
+    HAL_Delay(4000);
+
+    // --- Étape 5 : Nettoyage ---
+    HAL_UART_Transmit(huart, (uint8_t*)"AT+HTTPTERM\r\n", 13, 1000);
+}
+
+void A7670_Free_Init(void) {
+	// 1. Configurer l'APN (À faire une fois au boot)
+	// Remplace "free" par l'APN de la carte SIM qui est DANS LE MODULE (ex: "sl2sfr", "orange", etc.)
+	HAL_UART_Transmit(&huart1, (uint8_t*)"AT+CGDCONT=1,\"IP\",\"free\"\r\n", 26, 1000);
+	HAL_Delay(2000);
 }
 
 int Modem_Get_Signal_Quality(void) {
@@ -423,6 +464,10 @@ ModemStatus Modem_Init(void) {
 		status = Modem_Set_Sleep_Mode(SLEEP_MODE_DTR);
 		gpio_Sleep();
 	}
+
+	// 2. Appel de la fonction pour envoyer le SMS
+	// Attention au message : "Alerte%20Intrusion" et non "Alerte Intrusion"
+	A7670_Free_Send_Notif(&huart1, "TON_USER_FREE", CLE_API, "Alerte%20Detecteur%20Mouvement");
 
 	return status;
 }
