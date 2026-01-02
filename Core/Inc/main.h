@@ -99,8 +99,8 @@ ModemStatus Modem_Check_Alive(void);
 int Modem_Get_Signal_Quality(void);
 void gpio_Wakeup(void);
 void gpio_Sleep(void);
-void A7670_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, char *msg);
-void A7670_Free_Init(void);
+void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, char *msg);
+void Modem_Free_Init(void);
 
 /* USER CODE END EFP */
 

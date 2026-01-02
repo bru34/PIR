@@ -1,0 +1,10 @@
+{
+    // Indique où est le debugger (GDB) que tu as installé à l'étape 1
+    // Si tu as coché "Add to Path", cette ligne n'est même pas obligatoire, mais c'est plus sûr.
+    // VERIFIE CE CHEMIN sur ton disque ! La version (13.2...) peut changer.
+    "cortex-debug.armToolchainPath": "C:/Program Files (x86)/Arm/GNU Toolchain mingw-w64-i686-arm-none-eabi/bin/",
+
+    // Indique où est OpenOCD (Étape 2)
+    // ATTENTION : Mets des slashs avant / et pas des backslashs \
+    "cortex-debug.openocdPath": "C:/ST/openocd/0.12.0.7/bin/openocd.exe"
+}

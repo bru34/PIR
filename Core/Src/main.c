@@ -330,7 +330,7 @@ ModemStatus Modem_Init_Sequence(void) {
 	// Mise à l'heure réseau
 	if (Modem_Send_AT_Wait("AT+CTZU=1\r", "OK", 1000) != MODEM_OK) return ERR_CTZU;
 
-	A7670_Free_Init();
+	Modem_Free_Init();
 
 	return retVal;
 }
@@ -380,7 +380,7 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
  * pass  : ta clé API (ex: "AbCdEfGhIjK")
  * msg   : le message (ATTENTION: Pas d'espaces, utilise des %20 ou des underscores)
  */
-void A7670_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, char *msg) {
+void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, char *msg) {
     char buffer[512]; // Buffer large pour contenir l'URL complète
 
     // --- Étape 1 : Initialiser le service HTTP ---
@@ -408,7 +408,7 @@ void A7670_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, ch
     HAL_UART_Transmit(huart, (uint8_t*)"AT+HTTPTERM\r\n", 13, 1000);
 }
 
-void A7670_Free_Init(void) {
+void Modem_Free_Init(void) {
 	// 1. Configurer l'APN (À faire une fois au boot)
 	// Remplace "free" par l'APN de la carte SIM qui est DANS LE MODULE (ex: "sl2sfr", "orange", etc.)
 	HAL_UART_Transmit(&huart1, (uint8_t*)"AT+CGDCONT=1,\"IP\",\"free\"\r\n", 26, 1000);
@@ -456,6 +456,7 @@ ModemStatus Modem_Init(void) {
 	} while (tentative < 3);
 
 	if (status != MODEM_OK) {
+		gpio_Sleep();
 		printf("!! Echec critique !!\n");
 		Error_Handler();
 	}
@@ -467,7 +468,7 @@ ModemStatus Modem_Init(void) {
 
 	// 2. Appel de la fonction pour envoyer le SMS
 	// Attention au message : "Alerte%20Intrusion" et non "Alerte Intrusion"
-	A7670_Free_Send_Notif(&huart1, "TON_USER_FREE", CLE_API, "Alerte%20Detecteur%20Mouvement");
+	Modem_Free_Send_Notif(&huart1, "TON_USER_FREE", CLE_API, "Alerte%20Detecteur%20Mouvement");
 
 	return status;
 }
@@ -859,6 +860,7 @@ void Error_Handler(void)
 	__disable_irq();
 	while (1)
 	{
+		HAL_Delay(100);
 	}
 	/* USER CODE END Error_Handler_Debug */
 }
