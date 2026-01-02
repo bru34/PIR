@@ -14,7 +14,20 @@
                 "target/stm32f4x.cfg"
             ],
             "runToEntryPoint": "main",
-            "svdFile": "STM32G431.svd"
+            "svdFile": "STM32G431.svd",
+            "swoConfig": {
+                "enabled": true,
+                "cpuFrequency": 16000000,   // <--- METS TA FRÉQUENCE HCLK ICI (ex: 16000000)
+                "swoFrequency": 2000000,    // Standard, ne touche pas
+                "source": "probe",
+                "decoders": [
+                    {
+                        "label": "ITM Port 0",
+                        "number": 0,
+                        "type": "console"
+                    }
+                ]
+            }
         }
     ]
 }
