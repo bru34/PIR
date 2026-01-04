@@ -14,7 +14,7 @@
                 "target/stm32f4x.cfg"
             ],
             "runToEntryPoint": "main",
-            "svdFile": "STM32G431.svd",
+            "svdFile": "STM32F446.svd",
             "swoConfig": {
                 "enabled": true,
                 "cpuFrequency": 50000000,   // <--- METS TA FRÉQUENCE HCLK ICI (ex: 16000000)
