@@ -8,7 +8,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "cmsis_os.h"
+#include "cmsis_os2.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -21,12 +21,34 @@
 /* USER CODE BEGIN PTD */
 #define LED_PIN GPIO_PIN_5
 #define LED_PORT GPIOA
+
+typedef enum {
+    MODEM_OK = 0,
+    ERR_SLEEPMODE,
+    ERR_NOT_ALIVE,
+    ERR_NOT_INITIALIZED,
+    ERR_AT_SYNC,
+    ERR_CPIN,
+    ERR_CREG,
+    ERR_CTZU,
+    ERR_SMS_FORMAT,
+    ERR_SMS_NUMBER,
+    ERR_SETBAUD,
+    ERR_ATE0,
+    ERR_CMEE,
+    ERR_IFC,
+    ERR_WRITEFLASH
+} ModemStatus;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 //#define TEST
 // Statuts de l'initialisation du modem
+#define CLE_API "YOUR_API_KEY"
+#define PHONE_NUMBER "+33600000000"
+#define AT_PIN_CMD "AT+CPIN=0000"
+#define SLEEP_MODE_DTR 1
 
 /* USER CODE END PD */
 
@@ -49,6 +71,7 @@ const osThreadAttr_t defaultTask_attributes = {
 };
 /* USER CODE BEGIN PV */
 osSemaphoreId_t mySemaphoreAlarm;
+char modem_buffer[128] = {0}; // Buffer réception modem
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -59,7 +82,18 @@ static void MX_USART1_UART_Init(void);
 void StartDefaultTask(void *argument);
 
 /* USER CODE BEGIN PFP */
-char modem_buffer[128] = {0}; // Buffer réception modem
+void ThreadAlarm(void *argument);
+void ThreadReception(void *argument);
+void Generate_Random_SMS(char *buffer, int max_len);
+ModemStatus Modem_Set_Sleep_Mode(int mode);
+ModemStatus Modem_Check_Alive(void);
+ModemStatus Modem_Send_AT_Wait(char* cmd, char* expected_resp, uint32_t timeout);
+ModemStatus Modem_Init_Sequence(void);
+ModemStatus Modem_Send_SMS(char* phone_number, char* message);
+void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, char *msg);
+void Modem_Free_Init(void);
+int Modem_Get_Signal_Quality(void);
+ModemStatus Modem_Init(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -205,7 +239,7 @@ void ThreadAlarm(void *argument)
 
 #ifdef TEST
 			Generate_Random_SMS(random_message, sizeof(random_message));
-			printf(random_message);
+			printf("%s", random_message);
 			printf("\r\n");
 #else
 
@@ -350,7 +384,7 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 	// 2. Numéro
 	sprintf(cmd, "AT+CMGS=\"%s\"\r", phone_number);
 	printf("\tEnvoi SMS <");
-	printf(message);
+	printf("%s", message);
 
 	if (Modem_Send_AT_Wait(cmd, ">>", 2000) != MODEM_OK) {
 		printf("Erreur Prompt >\n");
@@ -537,8 +571,8 @@ int main(void)
 	defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
 	/* USER CODE BEGIN RTOS_THREADS */
-	const osThreadAttr_t highAttr = { .name = "HighThread", .priority = osPriorityHigh };
-	const osThreadAttr_t lowAttr = { .name = "LowThread", .priority = osPriorityBelowNormal };
+	const osThreadAttr_t highAttr = { .name = "HighThread", .stack_size = 128 * 4, .priority = (osPriority_t) osPriorityHigh };
+	const osThreadAttr_t lowAttr = { .name = "LowThread", .stack_size = 128 * 4, .priority = (osPriority_t) osPriorityBelowNormal };
 
 	Modem_Init();
 

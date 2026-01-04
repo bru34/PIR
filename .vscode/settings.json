@@ -6,5 +6,6 @@
 
     // Indique où est OpenOCD (Étape 2)
     // ATTENTION : Mets des slashs avant / et pas des backslashs \
-    "cortex-debug.openocdPath": "C:/ST/openocd/0.12.0.7/bin/openocd.exe"
+    "cortex-debug.openocdPath": "C:/ST/openocd/0.12.0.7/bin/openocd.exe",
+    "cortex-debug.gdbPath": "C:/Program Files (x86)/Arm/GNU Toolchain mingw-w64-i686-arm-none-eabi/bin/arm-none-eabi-gdb.exe"
 }
