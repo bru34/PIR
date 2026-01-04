@@ -21,35 +21,11 @@
 /* USER CODE BEGIN PTD */
 #define LED_PIN GPIO_PIN_5
 #define LED_PORT GPIOA
-
-typedef enum {
-    MODEM_OK = 0,
-    ERR_SLEEPMODE,
-    ERR_NOT_ALIVE,
-    ERR_NOT_INITIALIZED,
-    ERR_AT_SYNC,
-    ERR_CPIN,
-    ERR_CREG,
-    ERR_CTZU,
-    ERR_SMS_FORMAT,
-    ERR_SMS_NUMBER,
-    ERR_SETBAUD,
-    ERR_ATE0,
-    ERR_CMEE,
-    ERR_IFC,
-    ERR_WRITEFLASH
-} ModemStatus;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 //#define TEST
-// Statuts de l'initialisation du modem
-#define CLE_API "YOUR_API_KEY"
-#define PHONE_NUMBER "+33600000000"
-#define AT_PIN_CMD "AT+CPIN=0000"
-#define SLEEP_MODE_DTR 1
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -84,7 +60,6 @@ void StartDefaultTask(void *argument);
 /* USER CODE BEGIN PFP */
 void ThreadAlarm(void *argument);
 void ThreadReception(void *argument);
-void Generate_Random_SMS(char *buffer, int max_len);
 ModemStatus Modem_Set_Sleep_Mode(int mode);
 ModemStatus Modem_Check_Alive(void);
 ModemStatus Modem_Send_AT_Wait(char* cmd, char* expected_resp, uint32_t timeout);
@@ -238,7 +213,6 @@ void ThreadAlarm(void *argument)
 			gpio_Wakeup();
 
 #ifdef TEST
-			Generate_Random_SMS(random_message, sizeof(random_message));
 			printf("%s", random_message);
 			printf("\r\n");
 #else
@@ -246,8 +220,7 @@ void ThreadAlarm(void *argument)
 			if (Modem_Check_Alive() == MODEM_OK)
 			{
 				// GENERATION DU SMS
-				Generate_Random_SMS(random_message, sizeof(random_message));
-
+// FIXME: personnalise ton message ici
 				// ENVOI
 				if (Modem_Send_SMS(PHONE_NUMBER, random_message) == MODEM_OK) {
 					printf("SMS envoye.\n");
