@@ -97,11 +97,14 @@ ModemStatus Modem_Send_SMS(char*, char* );
 ModemStatus Modem_Send_AT_Wait(char*, char*, uint32_t);
 ModemStatus Modem_Check_Alive(void);
 int Modem_Get_Signal_Quality(void);
+void url_encode(char *, const char *);
+void Get_Network_Time_Raw(char *);
 void gpio_Wakeup(void);
 void gpio_Sleep(void);
 void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, char *msg);
 void Modem_Free_Init(void);
-
+void LED_ON(void);
+void LED_OFF(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

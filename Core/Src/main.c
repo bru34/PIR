@@ -47,7 +47,7 @@ const osThreadAttr_t defaultTask_attributes = {
 };
 /* USER CODE BEGIN PV */
 osSemaphoreId_t mySemaphoreAlarm;
-char modem_buffer[128] = {0}; // Buffer réception modem
+char modem_buffer[512] = {0}; // Buffer réception modem
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -83,16 +83,62 @@ int _write(int file, char *ptr, int len)
 	return len;
 }
 
+/* USER CODE BEGIN 0 */
+
+void url_encode(char *dest, const char *src) {
+	while (*src) {
+		if (*src == ' ') {
+			// On remplace l'espace par %20
+			*dest++ = '%';
+			*dest++ = '2';
+			*dest++ = '0';
+		} else {
+			// On recopie le caractère tel quel
+			*dest++ = *src;
+		}
+		src++;
+	}
+	*dest = '\0'; // On termine la chaîne de caractères
+}
+
+/* ... tes autres fonctions comme Modem_Free_Send_Notif ... */
+
+/* USER CODE END 0 */
+
+void Get_Network_Time_Raw(char *dest_time) {
+	strcpy(dest_time, "Date_Inconnue");
+
+	// Nettoyage buffer
+	memset(modem_buffer, 0, sizeof(modem_buffer));
+
+	if (Modem_Send_AT_Wait("AT+CCLK?\r", "OK", 1000) == MODEM_OK) {
+		osDelay(100); // Laisse l'UART finir la réception
+		char *ptr = strstr(modem_buffer, "\"");
+		if (ptr != NULL) {
+			ptr++;
+			strncpy(dest_time, ptr, 14); // Copie "YY/MM/DD,HH:MM"
+			dest_time[14] = '\0';
+		}
+	}
+}
 void gpio_Wakeup(void) {
 	HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_SET);
-	HAL_Delay(50);
+	osDelay(50);
 	printf("Modem reveille.\n");
 }
 
 void gpio_Sleep(void) {
-	HAL_Delay(50);
+	osDelay(50);
 	HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_RESET);
 	printf("Modem en veille.\n");
+}
+
+void LED_ON(void)
+{
+	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET);
+}
+void LED_OFF(void) {
+	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
 }
 
 ModemStatus Modem_Set_Sleep_Mode(int mode) {
@@ -131,11 +177,11 @@ ModemStatus Modem_Check_Alive() {
 			printf(" -> Modem repond ! On arrete le spam.\n");
 
 			// Petit délai de sécurité pour vider les buffers si besoin
-			HAL_Delay(50);
+			osDelay(50);
 			return MODEM_OK; // Succès
 		}
 
-		HAL_Delay(50);
+		osDelay(50);
 	}
 
 	return ERR_NOT_ALIVE; // Le modem est mort ou sourd
@@ -194,40 +240,31 @@ ModemStatus Modem_Send_AT_Wait(char* cmd, char* expected_resp, uint32_t timeout)
 void ThreadAlarm(void *argument)
 {
 	static uint32_t last_sms_tick = 0;
-	// ATTENTION : 12000ms (12s) est très agressif pour l'opérateur.
-	// Risque de blocage SIM. Conseillé : 60000 (1min) ou plus pour les tests.
 	const uint32_t SMS_COOLDOWN = 12000;
 
 	for(;;)
 	{
 		// Attente du sémaphore (déclenché par interruption ou autre tâche)
 		osSemaphoreAcquire(mySemaphoreAlarm, osWaitForever);
-
+		LED_ON();
 
 		if (HAL_GetTick() - last_sms_tick > SMS_COOLDOWN)
 		{
-			printf("Alarme VALIDE - Sequence envoi aleatoire\n");
+			printf("Alarme VALIDE\n");
 
 			gpio_Wakeup();
 
-#ifdef TEST
-			printf("%s", random_message);
-			printf("\r\n");
-#else
-
 			if (Modem_Check_Alive() == MODEM_OK)
 			{
-				Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, "Alerte%20Detecteur%20Mouvement");
+				Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, "ALERTE%20MOUVEMENT");
 			}
-#endif
+
 			last_sms_tick = HAL_GetTick();
 
 			// CRUCIAL : Délai pour laisser le modem transmettre physiquement (Radio)
 			// Ne pas supprimer tant que tu n'as pas validé la réception.
 			printf("Attente transmission radio (10s)...\n");
-			HAL_Delay(10000);
-
-			gpio_Sleep();
+			osDelay(10000);
 		}
 		else
 		{
@@ -235,8 +272,10 @@ void ThreadAlarm(void *argument)
 		}
 
 		// Reset de la LED et du sémaphore pour être propre
-		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
+		gpio_Sleep();
+		LED_OFF();
 		osSemaphoreAcquire(mySemaphoreAlarm, 0); // Nettoyage sémaphore si multi-clic
+		printf("Thread alarm done\n");
 	}
 }
 
@@ -271,11 +310,11 @@ ModemStatus Modem_Init_Sequence(void) {
 			printf(" FAIL\n");
 			return ERR_AT_SYNC;
 		}
-		HAL_Delay(200);
+		osDelay(200);
 	}
 	printf(" OK\n");
 
-	HAL_Delay(50);
+	osDelay(50);
 
 #if 0
 	// 2. Configs de base
@@ -294,7 +333,7 @@ ModemStatus Modem_Init_Sequence(void) {
 	if (Modem_Send_AT_Wait("AT+CPIN?\r", "+CPIN: READY", 500) != MODEM_OK) {
 		if (Modem_Send_AT_Wait("AT+CPIN?\r", "+CPIN: SIM PIN", 500) == MODEM_OK) {
 			if (Modem_Send_AT_Wait(AT_PIN_CMD, "OK", 2000) != MODEM_OK) return ERR_CPIN;
-			HAL_Delay(3000);
+			osDelay(3000);
 			if (Modem_Send_AT_Wait("AT+CPIN?\r", "+CPIN: READY", 1000) != MODEM_OK) return ERR_CPIN;
 		}
 	}
@@ -316,8 +355,15 @@ ModemStatus Modem_Init_Sequence(void) {
 		}
 	}
 
-	// Mise à l'heure réseau
-	if (Modem_Send_AT_Wait("AT+CTZU=1\r", "OK", 1000) != MODEM_OK) return ERR_CTZU;
+	// Activation CTZU (Mise à jour auto de l'heure via le réseau)
+	Modem_Send_AT_Wait("AT+CTZR=1\r", "OK", 1000);
+	Modem_Send_AT_Wait("AT+CTZU=1\r", "OK", 1000);
+
+	Modem_Send_AT_Wait("AT+CGATT=0\r", "OK", 2000);
+	osDelay(1000);
+	Modem_Send_AT_Wait("AT+CGATT=1\r", "OK", 2000);
+	printf("Attente synchronisation NITZ (10s)...\n");
+	osDelay(10000);
 
 	Modem_Free_Init();
 
@@ -329,6 +375,7 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 	uint8_t ctrlz = 26;
 
 	// on n utilise plus pour le moment ...
+	// FIXME : a utiliser si fail de l API
 	return MODEM_OK;
 
 	// 1. Passage en mode Texte
@@ -369,46 +416,55 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
  * pass  : ta clé API (ex: "AbCdEfGhIjK")
  * msg   : le message (ATTENTION: Pas d'espaces, utilise des %20 ou des underscores)
  */
-//void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, char *msg) {
-
 void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, char *msg) {
-    char buffer[512];
+	char time_now[20];
+	char raw_full_msg[200];
+	char encoded_full_msg[512];
+	char http_cmd[600];
 
-    printf("Preparation requete HTTP...\n");
+	// Récupération de l'heure via la fonction dédiée
+	Get_Network_Time_Raw(time_now);
 
-    // 1. Terminer toute session précédente proprement
-    Modem_Send_AT_Wait("AT+HTTPTERM\r\n", "OK", 500);
+	// Assemblage : "[Heure] Message"
+	sprintf(raw_full_msg, "[%s] %s", time_now, msg);
 
-    // 2. Initialiser HTTP
-    if (Modem_Send_AT_Wait("AT+HTTPINIT\r\n", "OK", 1000) != MODEM_OK) return;
+	// Encodage URL
+	url_encode(encoded_full_msg, raw_full_msg);
 
-    // 3. Configurer l'URL (Note: l'API Free est en HTTPS, le A7670 gère le SSL nativement via HTTPINIT)
-    sprintf(buffer, "AT+HTTPPARA=\"URL\",\"https://smsapi.free-mobile.fr/sendmsg?user=%s&pass=%s&msg=%s\"\r\n", user, pass, msg);
-    Modem_Send_AT_Wait(buffer, "OK", 1000);
+	printf("SMS Final : %s\n", raw_full_msg);
 
-    // 4. Lancer l'action GET (0 = GET)
-    printf("Envoi de la requete GET...\n");
-    // On attend le code +HTTPACTION: 0,200 (200 = succès HTTP)
-    if (Modem_Send_AT_Wait("AT+HTTPACTION=0\r\n", "+HTTPACTION: 0,200", 10000) == MODEM_OK) {
-        printf("Notification Free envoyee avec succes !\n");
-    } else {
-        printf("Echec envoi (Code HTTP different de 200 ou Timeout)\n");
-    }
+	// Séquence HTTP
+	Modem_Send_AT_Wait("AT+HTTPTERM\r\n", "OK", 500);
+	if (Modem_Send_AT_Wait("AT+HTTPINIT\r\n", "OK", 1000) != MODEM_OK) return;
 
-    // 5. Fermer la session
-    Modem_Send_AT_Wait("AT+HTTPTERM\r\n", "OK", 1000);
+	sprintf(http_cmd, "AT+HTTPPARA=\"URL\",\"https://smsapi.free-mobile.fr/sendmsg?user=%s&pass=%s&msg=%s\"\r\n",
+			user, pass, encoded_full_msg);
+
+	Modem_Send_AT_Wait(http_cmd, "OK", 1000);
+
+	if (Modem_Send_AT_Wait("AT+HTTPACTION=0\r\n", "+HTTPACTION: 0,200", 15000) == MODEM_OK) {
+		printf("SMS envoye\n");
+	} else {
+		printf("Echec envoi SMS\n");
+	}
+	Modem_Send_AT_Wait("AT+HTTPTERM\r\n", "OK", 1000);
 }
 
 void Modem_Free_Init(void) {
 	// 1. Configurer l'APN (À faire une fois au boot)
-	// Remplace "free" par l'APN de la carte SIM qui est DANS LE MODULE (ex: "sl2sfr", "orange", etc.)
 	HAL_UART_Transmit(&huart1, (uint8_t*)"AT+CGDCONT=1,\"IP\",\"free\"\r\n", 26, 1000);
-	HAL_Delay(2000);
+
+	// Forcer l'activation du contexte PDP (nécessaire pour la DATA)
+	Modem_Send_AT_Wait("AT+CGACT=1,1\r\n", "OK", 2000);
+	osDelay(2000);
 }
 
 int Modem_Get_Signal_Quality(void) {
 	char* ptr;
 	int rssi = -1;
+
+	memset(modem_buffer, 0, sizeof(modem_buffer));
+
 	if (Modem_Send_AT_Wait("AT+CSQ\r", "OK", 2000) == MODEM_OK) {
 		ptr = strstr(modem_buffer, "+CSQ: ");
 		if (ptr != NULL) sscanf(ptr + 6, "%d", &rssi);
@@ -442,7 +498,7 @@ ModemStatus Modem_Init(void) {
 			// On ne peut pas hard-reset via PWRKEY, donc on attend juste.
 			// On peut essayer un soft reset si l'UART répondait un peu
 			HAL_UART_Transmit(&huart1, (uint8_t*)"AT+CRESET\r", 10, 100);
-			HAL_Delay(5000);
+			osDelay(5000);
 		}
 	} while (tentative < 3);
 
@@ -453,13 +509,11 @@ ModemStatus Modem_Init(void) {
 	}
 	else {
 		printf("Systeme fonctionnel.\n");
+		Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, "Decteur%20Actif");
+		osDelay(10000);
 		status = Modem_Set_Sleep_Mode(SLEEP_MODE_DTR);
 		gpio_Sleep();
 	}
-
-	// 2. Appel de la fonction pour envoyer le SMS
-	// Attention au message : "Alerte%20Intrusion" et non "Alerte Intrusion"
-	//Modem_Free_Send_Notif(&huart1, "TON_USER_FREE", CLE_API, "Alerte%20Detecteur%20Mouvement");
 
 	return status;
 }
@@ -528,8 +582,8 @@ int main(void)
 	defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
 	/* USER CODE BEGIN RTOS_THREADS */
-	const osThreadAttr_t highAttr = { .name = "HighThread", .stack_size = 128 * 4, .priority = (osPriority_t) osPriorityHigh };
-	const osThreadAttr_t lowAttr = { .name = "LowThread", .stack_size = 128 * 4, .priority = (osPriority_t) osPriorityBelowNormal };
+	const osThreadAttr_t highAttr = { .name = "HighThread", .stack_size = 512 * 4, .priority = (osPriority_t) osPriorityHigh };
+	const osThreadAttr_t lowAttr = { .name = "LowThread", .stack_size = 512 * 4, .priority = (osPriority_t) osPriorityBelowNormal };
 
 	Modem_Init();
 
@@ -794,7 +848,6 @@ static void MX_GPIO_Init(void)
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	if (GPIO_Pin == GPIO_PIN_0) {
-		HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET);
 		osSemaphoreRelease(mySemaphoreAlarm);
 	}
 }
@@ -851,7 +904,7 @@ void Error_Handler(void)
 	__disable_irq();
 	while (1)
 	{
-		HAL_Delay(100);
+		osDelay(100);
 	}
 	/* USER CODE END Error_Handler_Debug */
 }
