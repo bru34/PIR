@@ -29,6 +29,26 @@
                     }
                 ]
             }
+        },
+        {
+            "name": "Cortex Debug (ST-Link)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "stlink",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/Debug/PIR.elf",
+            "device": "STM32F446RE",
+            "v1": false,
+            "svdFile": "STM32F446.svd",
+            "swoConfig": {
+                "enabled": true,
+                "cpuFrequency": 50000000,
+                "swoFrequency": 2000000,
+                "source": "probe",
+                "decoders": [
+                    { "label": "ITM Port 0", "number": 0, "type": "console", "port": 0 }
+                ]
+            }
         }
     ]
 }

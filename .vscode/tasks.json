@@ -1,0 +1,45 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Clean",
+            "type": "shell",
+            "command": "make",
+            "args": ["clean"],
+            "windows": {
+                "command": "C:/ST/xpack/bin/make.exe"
+            },
+            "options": {
+                "cwd": "${workspaceFolder}/Debug"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "make",
+            "args": ["all", "-j8"],
+            "windows": {
+                "command": "C:/ST/xpack/bin/make.exe",
+                "options": {
+                    "env": {
+                        "PATH": "C:\\Program Files (x86)\\Arm\\GNU Toolchain mingw-w64-i686-arm-none-eabi\\bin;${env:PATH}"
+                    }
+                }
+            },
+            "options": {
+                "cwd": "${workspaceFolder}/Debug"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Clean Build",
+            "dependsOn": ["Clean", "Build"],
+            "dependsOrder": "sequence"
+        }
+    ]
+}

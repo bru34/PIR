@@ -14,7 +14,7 @@
 /* USER CODE BEGIN Includes */
 #include <string.h>
 #include <stdio.h>
-#include <sms.h>
+#include <stm32f446xx.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -198,8 +198,6 @@ void ThreadAlarm(void *argument)
 	// Risque de blocage SIM. Conseillé : 60000 (1min) ou plus pour les tests.
 	const uint32_t SMS_COOLDOWN = 12000;
 
-	char random_message[100]; // Buffer pour le SMS
-
 	for(;;)
 	{
 		// Attente du sémaphore (déclenché par interruption ou autre tâche)
@@ -219,18 +217,7 @@ void ThreadAlarm(void *argument)
 
 			if (Modem_Check_Alive() == MODEM_OK)
 			{
-				// GENERATION DU SMS
-// FIXME: personnalise ton message ici
-				// ENVOI
-				if (Modem_Send_SMS(PHONE_NUMBER, random_message) == MODEM_OK) {
-					printf("SMS envoye.\n");
-				}
-				else {
-					printf("Echec envoi SMS (Reseau ?).\n");
-				}
-			}
-			else {
-				printf("Erreur: Le modem ne repond pas.\n");
+				Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, "Alerte%20Detecteur%20Mouvement");
 			}
 #endif
 			last_sms_tick = HAL_GetTick();
@@ -270,16 +257,10 @@ ModemStatus Modem_Init_Sequence(void) {
 	ModemStatus retVal = ERR_NOT_INITIALIZED;
 
 	memset(modem_buffer, 0, sizeof(modem_buffer));
-#if 0
+
 	if ( Modem_Check_Alive() != MODEM_OK ) {
 		printf("Modem non joignable apres 10 essais.\n");
 		return ERR_NOT_INITIALIZED;
-	}
-#endif
-	// Nettoyage ORE
-	if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) {
-		__HAL_UART_CLEAR_OREFLAG(&huart1);
-		volatile uint32_t tmpreg = huart1.Instance->DR; (void)tmpreg;
 	}
 
 	// 1. Sync Baudrate
@@ -328,6 +309,7 @@ ModemStatus Modem_Init_Sequence(void) {
 		{
 			int niveau = Modem_Get_Signal_Quality();
 			printf("OK [signal: %d/31]\n", niveau);
+			retVal = MODEM_OK;
 		} else {
 			printf(" FAIL (Not registered on LTE)\n");
 			return ERR_CREG;
@@ -387,32 +369,34 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
  * pass  : ta clé API (ex: "AbCdEfGhIjK")
  * msg   : le message (ATTENTION: Pas d'espaces, utilise des %20 ou des underscores)
  */
+//void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, char *msg) {
+
 void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, char *msg) {
-    char buffer[512]; // Buffer large pour contenir l'URL complète
+    char buffer[512];
 
-    // --- Étape 1 : Initialiser le service HTTP ---
-    HAL_UART_Transmit(huart, (uint8_t*)"AT+HTTPINIT\r\n", 13, 1000);
-    HAL_Delay(500); // Petit délai de sécurité
+    printf("Preparation requete HTTP...\n");
 
-    // --- Étape 2 : Construire et envoyer l'URL ---
-    // On insère l'user, le pass et le msg dans la commande AT
-    // Note : Le A7670 attend des guillemets autour de l'URL, d'où les \"
+    // 1. Terminer toute session précédente proprement
+    Modem_Send_AT_Wait("AT+HTTPTERM\r\n", "OK", 500);
+
+    // 2. Initialiser HTTP
+    if (Modem_Send_AT_Wait("AT+HTTPINIT\r\n", "OK", 1000) != MODEM_OK) return;
+
+    // 3. Configurer l'URL (Note: l'API Free est en HTTPS, le A7670 gère le SSL nativement via HTTPINIT)
     sprintf(buffer, "AT+HTTPPARA=\"URL\",\"https://smsapi.free-mobile.fr/sendmsg?user=%s&pass=%s&msg=%s\"\r\n", user, pass, msg);
+    Modem_Send_AT_Wait(buffer, "OK", 1000);
 
-    HAL_UART_Transmit(huart, (uint8_t*)buffer, strlen(buffer), 2000);
-    HAL_Delay(500);
+    // 4. Lancer l'action GET (0 = GET)
+    printf("Envoi de la requete GET...\n");
+    // On attend le code +HTTPACTION: 0,200 (200 = succès HTTP)
+    if (Modem_Send_AT_Wait("AT+HTTPACTION=0\r\n", "+HTTPACTION: 0,200", 10000) == MODEM_OK) {
+        printf("Notification Free envoyee avec succes !\n");
+    } else {
+        printf("Echec envoi (Code HTTP different de 200 ou Timeout)\n");
+    }
 
-    // --- Étape 3 : Lancer la requête GET ---
-    HAL_UART_Transmit(huart, (uint8_t*)"AT+HTTPACTION=0\r\n", 17, 1000);
-
-    // --- Étape 4 : Attendre la transmission ---
-    // Le réseau peut mettre 1 à 3 secondes à répondre.
-    // Dans un code bloquant simple, on attend.
-    // (Dans un code avancé, on écouterait l'UART pour recevoir "+HTTPACTION: 0,200,0")
-    HAL_Delay(4000);
-
-    // --- Étape 5 : Nettoyage ---
-    HAL_UART_Transmit(huart, (uint8_t*)"AT+HTTPTERM\r\n", 13, 1000);
+    // 5. Fermer la session
+    Modem_Send_AT_Wait("AT+HTTPTERM\r\n", "OK", 1000);
 }
 
 void Modem_Free_Init(void) {
@@ -475,7 +459,7 @@ ModemStatus Modem_Init(void) {
 
 	// 2. Appel de la fonction pour envoyer le SMS
 	// Attention au message : "Alerte%20Intrusion" et non "Alerte Intrusion"
-	Modem_Free_Send_Notif(&huart1, "TON_USER_FREE", CLE_API, "Alerte%20Detecteur%20Mouvement");
+	//Modem_Free_Send_Notif(&huart1, "TON_USER_FREE", CLE_API, "Alerte%20Detecteur%20Mouvement");
 
 	return status;
 }
