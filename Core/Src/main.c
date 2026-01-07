@@ -74,7 +74,6 @@ ModemStatus Modem_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-
 // Redirection de printf vers ITM (SWO)
 int _write(int file, char *ptr, int len)
 {
@@ -83,9 +82,6 @@ int _write(int file, char *ptr, int len)
 	return len;
 }
 
-/* USER CODE BEGIN 0 */
-
-
 /* Synchronisation de l'heure via NTP (Internet) */
 ModemStatus Modem_Sync_Time_NTP(void) {
 	printf("\tSync Heure NTP...");
@@ -93,7 +89,7 @@ ModemStatus Modem_Sync_Time_NTP(void) {
 	// 1. Configurer le serveur NTP
 	// "fr.pool.ntp.org" = Serveur français
 	// 4 = GMT+1 (4 quarts d'heure). Mets 8 pour l'été (GMT+2).
-	if (Modem_Send_AT_Wait("AT+CNTP=\"fr.pool.ntp.org\",4\r", "OK", 2000) != MODEM_OK) {
+	if (Modem_Send_AT_Wait("AT+CNTP=\"fr.pool.ntp.org\",0\r", "OK", 2000) != MODEM_OK) {
 		printf(" FAIL (Config)\n");
 		return ERR_NTP; // Code erreur générique, tu peux en créer un spécifique
 	}
@@ -301,27 +297,25 @@ void ThreadAlarm(void *argument)
 	static uint32_t last_sms_tick = 0;
 	const uint32_t SMS_COOLDOWN = 12000;
 
+	// Plus besoin de déclarer sTime, sDate ou message_alerte ici !
+
 	for(;;)
 	{
-		// Attente du sémaphore (déclenché par interruption ou autre tâche)
 		osSemaphoreAcquire(mySemaphoreAlarm, osWaitForever);
 		LED_ON();
 
 		if (HAL_GetTick() - last_sms_tick > SMS_COOLDOWN)
 		{
 			printf("Alarme VALIDE\n");
-
 			gpio_Wakeup();
 
 			if (Modem_Check_Alive() == MODEM_OK)
 			{
-				Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, "ALERTE%20MOUVEMENT");
+				Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, "ALERTE");
 			}
 
 			last_sms_tick = HAL_GetTick();
 
-			// CRUCIAL : Délai pour laisser le modem transmettre physiquement (Radio)
-			// Ne pas supprimer tant que tu n'as pas validé la réception.
 			printf("Attente transmission radio (10s)...\n");
 			osDelay(10000);
 		}
@@ -330,14 +324,11 @@ void ThreadAlarm(void *argument)
 			printf("Alarme ignoree (Cooldown actif)\n");
 		}
 
-		// Reset de la LED et du sémaphore pour être propre
 		gpio_Sleep();
 		LED_OFF();
-		osSemaphoreAcquire(mySemaphoreAlarm, 0); // Nettoyage sémaphore si multi-clic
-		printf("Thread alarm done\n");
+		osSemaphoreAcquire(mySemaphoreAlarm, 0);
 	}
 }
-
 // Thread réception (Echo simple pour l'instant)
 void ThreadReception(void *argument)
 {
@@ -474,18 +465,18 @@ void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, ch
 	char encoded_full_msg[512];
 	char http_cmd[600];
 
-	// Récupération de l'heure via la fonction dédiée
+	// 1. On récupère l'heure (YY/MM/DD,HH:MM)
 	Get_Network_Time_Raw(time_now);
 
-	// Assemblage : "[Heure] Message"
-	sprintf(raw_full_msg, "[%s] %s", time_now, msg);
+	// 2. MODIFICATION ICI : On insère " GMT" dans les crochets
+	sprintf(raw_full_msg, "[%s GMT] %s", time_now, msg);
 
-	// Encodage URL
+	// 3. Encodage URL
 	url_encode(encoded_full_msg, raw_full_msg);
 
 	printf("SMS Final : %s\n", raw_full_msg);
 
-	// Séquence HTTP
+	// ... La suite de la fonction reste identique (HTTPTERM, HTTPINIT, etc.) ...
 	Modem_Send_AT_Wait("AT+HTTPTERM\r\n", "OK", 500);
 	if (Modem_Send_AT_Wait("AT+HTTPINIT\r\n", "OK", 1000) != MODEM_OK) return;
 
@@ -501,6 +492,7 @@ void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, ch
 	}
 	Modem_Send_AT_Wait("AT+HTTPTERM\r\n", "OK", 1000);
 }
+
 
 void Modem_Free_Init(void) {
 	// 1. Configurer l'APN (À faire une fois au boot)
@@ -561,7 +553,7 @@ ModemStatus Modem_Init(void) {
 	}
 	else {
 		printf("Systeme fonctionnel.\n");
-		Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, "Decteur%20Actif");
+		Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, "Detecteur Actif");
 		osDelay(10000);
 		status = Modem_Set_Sleep_Mode(SLEEP_MODE_DTR);
 		gpio_Sleep();
@@ -591,7 +583,6 @@ int main(void)
 	/* USER CODE BEGIN Init */
 
 	/* USER CODE END Init */
-
 	/* Configure the system clock */
 	SystemClock_Config();
 
