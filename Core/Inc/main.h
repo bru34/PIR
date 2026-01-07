@@ -77,6 +77,7 @@ typedef enum {
 	ERR_NOT_ALIVE,
 	ERR_SLEEPMODE,
 	ERR_IFC,
+	ERR_NTP,
 } ModemStatus;
 
 typedef enum {
@@ -103,6 +104,7 @@ void gpio_Wakeup(void);
 void gpio_Sleep(void);
 void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, char *msg);
 void Modem_Free_Init(void);
+ModemStatus Modem_Sync_Time_NTP(void);
 void LED_ON(void);
 void LED_OFF(void);
 /* USER CODE END EFP */

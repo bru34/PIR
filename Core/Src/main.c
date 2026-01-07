@@ -85,6 +85,65 @@ int _write(int file, char *ptr, int len)
 
 /* USER CODE BEGIN 0 */
 
+
+/* Synchronisation de l'heure via NTP (Internet) */
+ModemStatus Modem_Sync_Time_NTP(void) {
+	printf("\tSync Heure NTP...");
+
+	// 1. Configurer le serveur NTP
+	// "fr.pool.ntp.org" = Serveur français
+	// 4 = GMT+1 (4 quarts d'heure). Mets 8 pour l'été (GMT+2).
+	if (Modem_Send_AT_Wait("AT+CNTP=\"fr.pool.ntp.org\",4\r", "OK", 2000) != MODEM_OK) {
+		printf(" FAIL (Config)\n");
+		return ERR_NTP; // Code erreur générique, tu peux en créer un spécifique
+	}
+
+	// 2. Lancer la synchro
+	// Le modem répond d'abord "OK", puis quelques secondes après "+CNTP: 0" (Succès)
+	// On met un timeout long (15s) pour laisser le temps au réseau
+	if (Modem_Send_AT_Wait("AT+CNTP\r", "+CNTP: 0", 15000) != MODEM_OK) {
+		printf(" FAIL (Timeout ou Erreur Reseau)\n");
+		return ERR_NTP;
+	}
+
+	printf(" OK\n");
+
+	// 3. Lire l'heure fraîchement acquise et mettre à jour le STM32
+	// Une fois CNTP ok, l'horloge interne du modem (CCLK) est à jour.
+	// On la récupère pour régler le RTC du microcontrôleur.
+	memset(modem_buffer, 0, sizeof(modem_buffer));
+	if (Modem_Send_AT_Wait("AT+CCLK?\r", "OK", 1000) == MODEM_OK) {
+
+		// Format reçu : +CCLK: "yy/MM/dd,hh:mm:ss+zz"
+		char *ptr = strstr(modem_buffer, "+CCLK: \"");
+		if (ptr != NULL) {
+			RTC_TimeTypeDef sTime = {0};
+			RTC_DateTypeDef sDate = {0};
+
+			ptr += 8; // On saute +CCLK: "
+
+			// Parsing rapide (Attention : sscanf dépend de ta lib standard, sinon faire manuellement)
+			int yy, MM, dd, hh, mm, ss;
+			sscanf(ptr, "%d/%d/%d,%d:%d:%d", &yy, &MM, &dd, &hh, &mm, &ss);
+
+			sTime.Hours = hh;
+			sTime.Minutes = mm;
+			sTime.Seconds = ss;
+			HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
+
+			sDate.Year = yy; // Le RTC STM32 prend l'année sur 2 digits (20xx)
+			sDate.Month = MM;
+			sDate.Date = dd;
+			// Note: Le WeekDay n'est pas calculé ici, mais c'est pas critique pour toi
+			HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+
+			printf("\tRTC STM32 mis a jour: %02d:%02d:%02d\n", hh, mm, ss);
+		}
+	}
+
+	return MODEM_OK;
+}
+
 void url_encode(char *dest, const char *src) {
 	while (*src) {
 		if (*src == ' ') {
@@ -355,17 +414,10 @@ ModemStatus Modem_Init_Sequence(void) {
 		}
 	}
 
-	// Activation CTZU (Mise à jour auto de l'heure via le réseau)
-	Modem_Send_AT_Wait("AT+CTZR=1\r", "OK", 1000);
-	Modem_Send_AT_Wait("AT+CTZU=1\r", "OK", 1000);
-
-	Modem_Send_AT_Wait("AT+CGATT=0\r", "OK", 2000);
-	osDelay(1000);
-	Modem_Send_AT_Wait("AT+CGATT=1\r", "OK", 2000);
-	printf("Attente synchronisation NITZ (10s)...\n");
-	osDelay(10000);
-
 	Modem_Free_Init();
+
+	// Mise a jour de l heure par NTP
+	Modem_Sync_Time_NTP();
 
 	return retVal;
 }
