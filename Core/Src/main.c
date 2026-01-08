@@ -296,6 +296,8 @@ void ThreadAlarm(void *argument)
 {
 	static uint32_t last_sms_tick = 0;
 	const uint32_t SMS_COOLDOWN = 12000;
+	static uint32_t cptAlarm = 0;
+	char buffer_msg[64]={0};
 
 	// Plus besoin de déclarer sTime, sDate ou message_alerte ici !
 
@@ -309,9 +311,12 @@ void ThreadAlarm(void *argument)
 			printf("Alarme VALIDE\n");
 			gpio_Wakeup();
 
+			cptAlarm++;
+
 			if (Modem_Check_Alive() == MODEM_OK)
 			{
-				Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, "ALERTE");
+				snprintf(buffer_msg, sizeof(buffer_msg), "Alarm %lu", cptAlarm);
+				Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, buffer_msg);
 			}
 
 			last_sms_tick = HAL_GetTick();
@@ -365,18 +370,6 @@ ModemStatus Modem_Init_Sequence(void) {
 	printf(" OK\n");
 
 	osDelay(50);
-
-#if 0
-	// 2. Configs de base
-	if (Modem_Send_AT_Wait("AT+IPREX=115200\r", "OK", 1000)) return ERR_SETBAUD;
-	if (Modem_Send_AT_Wait("ATE0\r", "OK", 1000) != MODEM_OK) return ERR_ATE0;
-	if (Modem_Send_AT_Wait("AT+CMEE=2\r", "OK", 1000) != MODEM_OK) return ERR_CMEE;
-	if (Modem_Send_AT_Wait("AT+IFC=0\r", "OK", 1000) != MODEM_OK) return ERR_IFC;
-	if (Modem_Send_AT_Wait("AT&W\r", "OK", 1000)){
-		printf(" ERR_WRITEFLASH\n");
-		return ERR_WRITEFLASH;
-	}
-#endif
 
 	// 3. Carte SIM
 	printf("\tVerif SIM...");
@@ -469,7 +462,7 @@ void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, ch
 	Get_Network_Time_Raw(time_now);
 
 	// 2. MODIFICATION ICI : On insère " GMT" dans les crochets
-	sprintf(raw_full_msg, "[%s GMT] %s", time_now, msg);
+	sprintf(raw_full_msg, "%s GMT %s", time_now, msg);
 
 	// 3. Encodage URL
 	url_encode(encoded_full_msg, raw_full_msg);
@@ -553,7 +546,7 @@ ModemStatus Modem_Init(void) {
 	}
 	else {
 		printf("Systeme fonctionnel.\n");
-		Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, "Detecteur Actif");
+		Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, "Actif");
 		osDelay(10000);
 		status = Modem_Set_Sleep_Mode(SLEEP_MODE_DTR);
 		gpio_Sleep();
