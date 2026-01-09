@@ -19,8 +19,7 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-#define LED_PIN GPIO_PIN_5
-#define LED_PORT GPIOA
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -34,19 +33,19 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-RTC_HandleTypeDef hrtc;
+RTC_HandleTypeDef hrtc; // RTC handle
 
-UART_HandleTypeDef huart1;
+UART_HandleTypeDef huart1; // UART1 handle
 
 /* Definitions for defaultTask */
-osThreadId_t defaultTaskHandle;
+osThreadId_t defaultTaskHandle; // Thread handle
 const osThreadAttr_t defaultTask_attributes = {
 		.name = "defaultTask",
 		.stack_size = 128 * 4,
 		.priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
-osSemaphoreId_t mySemaphoreAlarm;
+osSemaphoreId_t mySemaphoreAlarm; // Semaphore alarme
 char modem_buffer[512] = {0}; // Buffer réception modem
 /* USER CODE END PV */
 
@@ -140,6 +139,7 @@ ModemStatus Modem_Sync_Time_NTP(void) {
 	return MODEM_OK;
 }
 
+/* Fonction d'encodage URL simple (remplace espaces par %20) */
 void url_encode(char *dest, const char *src) {
 	while (*src) {
 		if (*src == ' ') {
@@ -156,10 +156,7 @@ void url_encode(char *dest, const char *src) {
 	*dest = '\0'; // On termine la chaîne de caractères
 }
 
-/* ... tes autres fonctions comme Modem_Free_Send_Notif ... */
-
-/* USER CODE END 0 */
-
+/* Récupération de l'heure réseau brute (format YY/MM/DD,HH:MM) */
 void Get_Network_Time_Raw(char *dest_time) {
 	strcpy(dest_time, "Date_Inconnue");
 
@@ -176,26 +173,32 @@ void Get_Network_Time_Raw(char *dest_time) {
 		}
 	}
 }
+
+/* Gestion GPIO Modem Sleep */
 void gpio_Wakeup(void) {
 	HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_SET);
 	osDelay(50);
 	printf("Modem reveille.\n");
 }
 
+/* Gestion GPIO Modem Sleep */
 void gpio_Sleep(void) {
 	osDelay(50);
 	HAL_GPIO_WritePin(MODEM_SLEEP_GPIO_Port, MODEM_SLEEP_Pin, GPIO_PIN_RESET);
 	printf("Modem en veille.\n");
 }
 
+/* Gestion LED */
 void LED_ON(void)
 {
 	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET);
 }
+/* Gestion LED */
 void LED_OFF(void) {
 	HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
 }
 
+/* Configuration mode veille automatique CSCLK */
 ModemStatus Modem_Set_Sleep_Mode(int mode) {
 
 	char cmd[32];
@@ -212,6 +215,7 @@ ModemStatus Modem_Set_Sleep_Mode(int mode) {
 	return status;
 }
 
+/* Vérification si le modem répond */
 ModemStatus Modem_Check_Alive() {
 	int essais_max = 20;
 
@@ -242,6 +246,7 @@ ModemStatus Modem_Check_Alive() {
 	return ERR_NOT_ALIVE; // Le modem est mort ou sourd
 }
 
+/* Envoi d'une commande AT et attente d'une réponse spécifique */
 ModemStatus Modem_Send_AT_Wait(char* cmd, char* expected_resp, uint32_t timeout) {
 
 	// 1. Nettoyage PRÉVENTIF (Si un Overrun traîne, on le vire)
@@ -289,17 +294,13 @@ ModemStatus Modem_Send_AT_Wait(char* cmd, char* expected_resp, uint32_t timeout)
 	return ERR_NOT_INITIALIZED; // Timeout
 }
 
-// -------------------------------------------------------------------------
-// THREAD ALARME
-// -------------------------------------------------------------------------
+/* Thread alarm */
 void ThreadAlarm(void *argument)
 {
 	static uint32_t last_sms_tick = 0;
 	const uint32_t SMS_COOLDOWN = 12000;
 	static uint32_t cptAlarm = 0;
 	char buffer_msg[64]={0};
-
-	// Plus besoin de déclarer sTime, sDate ou message_alerte ici !
 
 	for(;;)
 	{
@@ -334,6 +335,7 @@ void ThreadAlarm(void *argument)
 		osSemaphoreAcquire(mySemaphoreAlarm, 0);
 	}
 }
+
 // Thread réception (Echo simple pour l'instant)
 void ThreadReception(void *argument)
 {
@@ -343,9 +345,7 @@ void ThreadReception(void *argument)
 	}
 }
 
-// -------------------------------------------------------------------------
-// SEQUENCE D'INITIALISATION
-// -------------------------------------------------------------------------
+/* Séquence d'initialisation du modem */
 ModemStatus Modem_Init_Sequence(void) {
 	int retry = 0;
 	ModemStatus retVal = ERR_NOT_INITIALIZED;
@@ -406,6 +406,7 @@ ModemStatus Modem_Init_Sequence(void) {
 	return retVal;
 }
 
+/* Envoi d'un SMS via le modem A7670G */
 ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 	char cmd[64];
 	uint8_t ctrlz = 26;
@@ -444,7 +445,6 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 
 	return MODEM_OK;
 }
-
 
 /* * Fonction pour envoyer une notif Free Mobile via A7670 (Data/HTTPS)
  * huart : pointeur vers ton UART (ex: &huart1)
@@ -486,7 +486,7 @@ void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, ch
 	Modem_Send_AT_Wait("AT+HTTPTERM\r\n", "OK", 1000);
 }
 
-
+/* Initialisation spécifique Free Mobile (APN, PDP) */
 void Modem_Free_Init(void) {
 	// 1. Configurer l'APN (À faire une fois au boot)
 	HAL_UART_Transmit(&huart1, (uint8_t*)"AT+CGDCONT=1,\"IP\",\"free\"\r\n", 26, 1000);
@@ -496,6 +496,7 @@ void Modem_Free_Init(void) {
 	osDelay(2000);
 }
 
+/* Récupération de la qualité du signal (RSSI) */
 int Modem_Get_Signal_Quality(void) {
 	char* ptr;
 	int rssi = -1;
@@ -509,9 +510,7 @@ int Modem_Get_Signal_Quality(void) {
 	return rssi;
 }
 
-// -------------------------------------------------------------------------
-// INITIALISATION GENERALE - Veille AUTO CSCLK=2
-// -------------------------------------------------------------------------
+/* Séquence complète d'initialisation du modem avec retries */
 ModemStatus Modem_Init(void) {
 	ModemStatus status = ERR_NOT_INITIALIZED;
 	int tentative = 0;
