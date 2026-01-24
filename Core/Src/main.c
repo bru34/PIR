@@ -474,6 +474,9 @@ void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, ch
 	Modem_Send_AT_Wait("AT+HTTPTERM\r\n", "OK", 500);
 	if (Modem_Send_AT_Wait("AT+HTTPINIT\r\n", "OK", 1000) != MODEM_OK){
 		printf("\tProbleme de requette HTTP");
+		// TODO : gérer l'erreur car le modem ne repond plus, par exemple suite a un redemarrage
+		// suite pb alimentation ...
+		Error_Handler();
 		return;
 	}
 
@@ -492,12 +495,30 @@ void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, ch
 
 /* Initialisation spécifique Free Mobile (APN, PDP) */
 void Modem_Free_Init(void) {
-	// 1. Configurer l'APN (À faire une fois au boot)
-	HAL_UART_Transmit(&huart1, (uint8_t*)"AT+CGDCONT=1,\"IP\",\"free\"\r\n", 26, 1000);
+    // On utilise un buffer local pour éviter de compter les caractères à la main
+    char cmd[64];
 
-	// Forcer l'activation du contexte PDP (nécessaire pour la DATA)
-	Modem_Send_AT_Wait("AT+CGACT=1,1\r\n", "OK", 2000);
-	osDelay(2000);
+    printf("--- Config APN Free ---\n");
+
+    // 1. Configurer l'APN
+    // On prépare la commande proprement
+    sprintf(cmd, "AT+CGDCONT=1,\"IP\",\"free\"\r");
+
+    // On utilise TA fonction standard (qui gère les timeouts, le nettoyage buffer, etc.)
+    if (Modem_Send_AT_Wait(cmd, "OK", 2000) != MODEM_OK) {
+        printf("Erreur Config APN\n");
+        // Optionnel : return; si c'est critique
+    }
+
+    // 2. Activer la Data
+    printf("Activation DATA...\n");
+    // Si c'est déjà activé, le modem peut répondre ERROR ou OK, on gère les deux cas si besoin
+    Modem_Send_AT_Wait("AT+CGACT=1,1\r", "OK", 3000);
+
+    // Petit temps de respiration pour le modem
+    osDelay(2000);
+
+    printf("--- Config Done ---\n");
 }
 
 /* Récupération de la qualité du signal (RSSI) */
