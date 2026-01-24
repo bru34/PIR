@@ -316,7 +316,7 @@ void ThreadAlarm(void *argument)
 
 			if (Modem_Check_Alive() == MODEM_OK)
 			{
-				snprintf(buffer_msg, sizeof(buffer_msg), "Alarm %lu", cptAlarm);
+				snprintf(buffer_msg, sizeof(buffer_msg), "@ %lu", cptAlarm);
 				Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, buffer_msg);
 			}
 
@@ -413,6 +413,7 @@ ModemStatus Modem_Send_SMS(char* phone_number, char* message) {
 
 	// on n utilise plus pour le moment ...
 	// FIXME : a utiliser si fail de l API
+	printf("\tNE PAS UTILISER - Envoi SMS direct via Modem...\n");
 	return MODEM_OK;
 
 	// 1. Passage en mode Texte
@@ -471,7 +472,10 @@ void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, ch
 
 	// ... La suite de la fonction reste identique (HTTPTERM, HTTPINIT, etc.) ...
 	Modem_Send_AT_Wait("AT+HTTPTERM\r\n", "OK", 500);
-	if (Modem_Send_AT_Wait("AT+HTTPINIT\r\n", "OK", 1000) != MODEM_OK) return;
+	if (Modem_Send_AT_Wait("AT+HTTPINIT\r\n", "OK", 1000) != MODEM_OK){
+		printf("\tProbleme de requette HTTP");
+		return;
+	}
 
 	sprintf(http_cmd, "AT+HTTPPARA=\"URL\",\"https://smsapi.free-mobile.fr/sendmsg?user=%s&pass=%s&msg=%s\"\r\n",
 			user, pass, encoded_full_msg);
@@ -516,6 +520,7 @@ ModemStatus Modem_Init(void) {
 	int tentative = 0;
 
 	printf("Demarrage Modem:\n");
+	HAL_Delay(5000);
 
 	// 1. reveil par DTR
 	gpio_Wakeup();
@@ -545,7 +550,7 @@ ModemStatus Modem_Init(void) {
 	}
 	else {
 		printf("Systeme fonctionnel.\n");
-		Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, "Actif");
+		Modem_Free_Send_Notif(&huart1, USER_FREE, CLE_API, "On ...");
 		osDelay(10000);
 		status = Modem_Set_Sleep_Mode(SLEEP_MODE_DTR);
 		gpio_Sleep();
@@ -939,7 +944,9 @@ void Error_Handler(void)
 	__disable_irq();
 	while (1)
 	{
-		osDelay(100);
+		printf("ERREUR CRITIQUE, REDEMARRAGE...\n");
+		// on a plus qu a reset le systeme ... ;(
+		NVIC_SystemReset();
 	}
 	/* USER CODE END Error_Handler_Debug */
 }
