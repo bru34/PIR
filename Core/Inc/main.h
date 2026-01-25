@@ -127,8 +127,6 @@ void LED_OFF(void);
 #define SWO_Pin GPIO_PIN_3
 #define SWO_GPIO_Port GPIOB
 
-#define LED_PIN GPIO_PIN_5
-#define LED_PORT GPIOA
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
