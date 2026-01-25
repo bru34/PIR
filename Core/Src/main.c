@@ -475,7 +475,7 @@ void Modem_Free_Send_Notif(UART_HandleTypeDef *huart, char *user, char *pass, ch
 	if (Modem_Send_AT_Wait("AT+HTTPINIT\r\n", "OK", 1000) != MODEM_OK){
 		printf("\tProbleme de requette HTTP");
 		// TODO : gérer l'erreur car le modem ne repond plus, par exemple suite a un redemarrage
-		// suite pb alimentation ...
+		// suite pb alimentation ... le code se bloque a ce moment du code suite redemarrage Modem
 		Error_Handler();
 		return;
 	}
